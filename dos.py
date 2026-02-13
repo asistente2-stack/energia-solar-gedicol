@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-import re
+import re, traceback
 from io import StringIO
 from datetime import datetime
-
 import numpy as np
 import pandas as pd
 import requests
@@ -10,1074 +9,664 @@ import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# =========================
-# CONFIG (TUS SHEETS)
-# =========================
+# ====================== CONFIG ======================
 SOLAR_SHEET_ID = "1ceFwwFm6D1QRW4slPj67BlSDR9woGFFaOMLoN1FxVvs"
 SOLAR_TAB_MES  = "POR MES"
 SOLAR_TAB_DIA  = "POR DIA"
 SOLAR_TAB_HORA = "POR HORA"
-
 EPM_SHEET_ID   = "1ANEtNlryqo_4wq1n6V5OlutpcDFMP_EdxxWXgjEhQ3c"
 EPM_GID_MES    = "2089036315"
+COSTOS_EPM     = {"CAFE": 1033, "MERCADO": 1077}
+COLOR_CAFE     = "#3b82f6"
+COLOR_MERC     = "#10b981"
+COLOR_TOTAL    = "#8b5cf6"
+COLOR_AMBAR    = "#f59e0b"
+BG             = "#f8fafc"
+ML = {1:"Ene",2:"Feb",3:"Mar",4:"Abr",5:"May",6:"Jun",
+      7:"Jul",8:"Ago",9:"Sep",10:"Oct",11:"Nov",12:"Dic"}
 
-COSTOS_EPM = {"CAFE": 1033, "MERCADO": 1077}
+st.set_page_config(page_title="Dashboard Energia Solar - GEDICOL",
+                   layout="wide", initial_sidebar_state="collapsed")
 
-# PALETA CORPORATIVA (NO CAMBIAR)
-COLOR_CAFE  = "#3b82f6"
-COLOR_MERC  = "#10b981"
-COLOR_TOTAL = "#8b5cf6"
-COLOR_AMBAR = "#f59e0b"
-BG_APP      = "#f8fafc"
-
-MES_NOMBRES_LARGO = {
-    1:"Ene", 2:"Feb", 3:"Mar", 4:"Abr", 5:"May", 6:"Jun",
-    7:"Jul", 8:"Ago", 9:"Sep", 10:"Oct", 11:"Nov", 12:"Dic"
-}
-
-st.set_page_config(
-    page_title="Dashboard Energia Solar - GEDICOL",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
-
-# =========================
-# CSS
-# =========================
+# ====================== CSS ======================
 st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-html, body, [class*="css"] {{ font-family: 'Inter', sans-serif !important; }}
-.block-container {{ padding-top: 0.6rem; padding-bottom: 2rem; background: {BG_APP}; }}
-#MainMenu {{ visibility: hidden; }} footer {{ visibility: hidden; }} header {{ visibility: hidden; }}
-.main {{ background-color: {BG_APP}; }}
+html,body,[class*="css"]{{font-family:'Inter',sans-serif!important}}
+.block-container{{padding-top:.6rem;padding-bottom:2rem;background:{BG}}}
+#MainMenu,.stDeployButton{{visibility:hidden}}footer{{visibility:hidden}}header{{visibility:hidden}}
+.main{{background:{BG}}}
+.header-wrap{{text-align:center;padding:16px 0;background:linear-gradient(135deg,{BG},#fff);border-radius:14px;margin-bottom:12px;border:1px solid #e2e8f0;box-shadow:0 2px 12px rgba(0,0,0,.04)}}
+.header-wrap h1{{font-size:28px;font-weight:900;margin:0;background:linear-gradient(135deg,{COLOR_CAFE},{COLOR_MERC},{COLOR_TOTAL});-webkit-background-clip:text;-webkit-text-fill-color:transparent}}
+.header-wrap p{{margin:6px 0 0;font-size:12px;color:#64748b;font-weight:600;letter-spacing:1.5px;text-transform:uppercase}}
+.left-card{{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:16px;box-shadow:0 4px 14px rgba(0,0,0,.06)}}
+.left-title{{font-size:15px;font-weight:900;margin:0 0 10px;color:#0f172a}}
+.fsec{{font-size:11px;font-weight:800;color:{COLOR_CAFE};text-transform:uppercase;letter-spacing:1.5px;padding:10px 0 4px;margin-top:8px;border-top:1px solid #e2e8f0}}
+.small-note{{font-size:10px;color:#94a3b8;font-weight:500;line-height:1.3;background:#f1f5f9;border-radius:8px;padding:8px;margin-top:6px}}
+.kpi-row{{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}}
+.kpi-card{{flex:1;min-width:130px;background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px 16px;box-shadow:0 4px 14px rgba(0,0,0,.05);border-left:5px solid {COLOR_TOTAL};transition:transform .2s,box-shadow .2s}}
+.kpi-card:hover{{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.1)}}
+.kpi-card.c1{{border-left-color:{COLOR_CAFE}}}.kpi-card.c2{{border-left-color:{COLOR_MERC}}}
+.kpi-card.c3{{border-left-color:{COLOR_TOTAL}}}.kpi-card.c4{{border-left-color:{COLOR_AMBAR}}}
+.kpi-card.c5{{border-left-color:#ef4444}}
+.kl{{font-size:10px;font-weight:900;color:#64748b;text-transform:uppercase;letter-spacing:1px}}
+.kv{{font-size:22px;font-weight:900;margin-top:4px;line-height:1}}
+.ks{{font-size:11px;color:#64748b;font-weight:600;margin-top:6px}}
+.panel{{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:18px;box-shadow:0 4px 14px rgba(0,0,0,.06);margin-bottom:14px}}
+.pt{{font-size:15px;font-weight:900;color:#0f172a;margin:0 0 2px}}
+.ps{{font-size:11px;color:#64748b;font-weight:600;margin:0 0 10px}}
+.sg{{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}}
+.sc{{flex:1;min-width:120px;text-align:center;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px 10px}}
+.sl{{font-size:10px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:1px}}
+.sv{{font-size:22px;font-weight:900;margin:4px 0 2px}}
+.se{{font-size:10px;color:#94a3b8;font-weight:600}}
+.dash-footer{{text-align:center;color:#94a3b8;font-size:11px;padding:14px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;margin-top:16px}}
+div[data-baseweb="select"]>div{{border-radius:10px!important}}
+</style>""", unsafe_allow_html=True)
 
-.header-wrap {{
-    text-align:center; padding:16px 0;
-    background:linear-gradient(135deg,{BG_APP} 0%,#ffffff 100%);
-    border-radius:14px; margin-bottom:12px; border:1px solid #e2e8f0;
-    box-shadow:0 2px 12px rgba(0,0,0,.04);
-}}
-.header-wrap h1 {{
-    font-size:28px; font-weight:900; margin:0;
-    background:linear-gradient(135deg,{COLOR_CAFE} 0%,{COLOR_MERC} 50%,{COLOR_TOTAL} 100%);
-    -webkit-background-clip:text; -webkit-text-fill-color:transparent;
-}}
-.header-wrap p {{ margin:6px 0 0; font-size:12px; color:#64748b; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; }}
-
-.left-card {{ background:#fff; border:1px solid #e2e8f0; border-radius:16px; padding:16px; box-shadow:0 4px 14px rgba(0,0,0,.06); }}
-.left-title {{ font-size:15px; font-weight:900; margin:0 0 10px 0; color:#0f172a; }}
-.filter-section {{ font-size:11px; font-weight:800; color:{COLOR_CAFE}; text-transform:uppercase; letter-spacing:1.5px; padding:10px 0 4px 0; margin-top:8px; border-top:1px solid #e2e8f0; }}
-.small-note {{ font-size:10px; color:#94a3b8; font-weight:500; line-height:1.3; background:#f1f5f9; border-radius:8px; padding:8px; margin-top:6px; }}
-
-.kpi-row {{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; }}
-.kpi-card {{
-    flex:1; min-width:140px; background:#fff; border:1px solid #e2e8f0; border-radius:14px;
-    padding:14px 16px; box-shadow:0 4px 14px rgba(0,0,0,.05); border-left:5px solid {COLOR_TOTAL};
-    transition:transform 0.2s ease, box-shadow 0.2s ease;
-}}
-.kpi-card:hover {{ transform:translateY(-2px); box-shadow:0 8px 24px rgba(0,0,0,.1); }}
-.kpi-card.cafe  {{ border-left-color:{COLOR_CAFE}; }}
-.kpi-card.merc  {{ border-left-color:{COLOR_MERC}; }}
-.kpi-card.total {{ border-left-color:{COLOR_TOTAL}; }}
-.kpi-card.ahorro {{ border-left-color:{COLOR_AMBAR}; }}
-.kpi-card.cob   {{ border-left-color:#ef4444; }}
-.kpi-label {{ font-size:10px; font-weight:900; color:#64748b; text-transform:uppercase; letter-spacing:1px; }}
-.kpi-value {{ font-size:24px; font-weight:900; margin-top:4px; line-height:1; }}
-.kpi-sub   {{ font-size:11px; color:#64748b; font-weight:600; margin-top:6px; line-height:1.3; }}
-
-.panel {{ background:#fff; border:1px solid #e2e8f0; border-radius:16px; padding:18px; box-shadow:0 4px 14px rgba(0,0,0,.06); margin-bottom:14px; }}
-.panel-title {{ font-size:15px; font-weight:900; color:#0f172a; margin:0 0 2px 0; }}
-.panel-sub {{ font-size:11px; color:#64748b; font-weight:600; margin:0 0 10px 0; }}
-
-.stat-grid {{ display:flex; gap:10px; flex-wrap:wrap; margin:12px 0; }}
-.stat-card {{
-    flex:1; min-width:120px; text-align:center;
-    background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:14px 10px;
-}}
-.stat-label {{ font-size:10px; font-weight:800; color:#64748b; text-transform:uppercase; letter-spacing:1px; }}
-.stat-value {{ font-size:24px; font-weight:900; margin:4px 0 2px 0; }}
-.stat-extra {{ font-size:10px; color:#94a3b8; font-weight:600; }}
-
-.dash-footer {{
-    text-align:center; color:#94a3b8; font-size:11px; padding:14px;
-    background:#fff; border:1px solid #e2e8f0; border-radius:12px; margin-top:16px;
-}}
-div[data-baseweb="select"] > div {{ border-radius:10px !important; }}
-</style>
-""", unsafe_allow_html=True)
-
-# =========================
-# PLOTLY LIGHT THEME
-# =========================
-PLOTLY_LIGHT = dict(
-    paper_bgcolor="rgba(255,255,255,0)",
-    plot_bgcolor="rgba(255,255,255,0)",
-    font=dict(family="Inter, sans-serif", color="#0f172a", size=12),
-    margin=dict(l=50, r=30, t=50, b=50),
-    legend=dict(bgcolor="rgba(255,255,255,0.95)", bordercolor="#e2e8f0", borderwidth=1, font=dict(size=11, color="#0f172a")),
-)
-
-def apply_light(fig, h=420):
-    fig.update_layout(**PLOTLY_LIGHT, height=h)
-    fig.update_xaxes(showgrid=True, gridcolor="#f1f5f9", gridwidth=1, zeroline=False)
-    fig.update_yaxes(showgrid=True, gridcolor="#f1f5f9", gridwidth=1, zeroline=False)
+# ====================== HELPERS ======================
+PLT = dict(paper_bgcolor="rgba(255,255,255,0)", plot_bgcolor="rgba(255,255,255,0)",
+           font=dict(family="Inter,sans-serif", color="#0f172a", size=12),
+           margin=dict(l=50,r=30,t=50,b=50),
+           legend=dict(bgcolor="rgba(255,255,255,.95)", bordercolor="#e2e8f0",
+                       borderwidth=1, font=dict(size=11)))
+def aplyt(fig, h=420):
+    fig.update_layout(**PLT, height=h)
+    fig.update_xaxes(showgrid=True, gridcolor="#f1f5f9", zeroline=False)
+    fig.update_yaxes(showgrid=True, gridcolor="#f1f5f9", zeroline=False)
     return fig
 
-# =========================
-# UTILS
-# =========================
-def _clean_cols(df):
-    df.columns = [str(c).strip().lower() for c in df.columns]
+def sf(x):
+    try:
+        v=float(x); return 0.0 if np.isnan(v) or np.isinf(v) else v
+    except: return 0.0
+def fn(x,d=0):
+    s=f"{sf(x):,.{d}f}".replace(",","X").replace(".",",").replace("X",".")
+    return s.split(",")[0] if d==0 else s
+def fc(x):
+    return f"${sf(x):,.0f}".replace(",","X").replace(".",",").replace("X",".")
+def mlbl(y,m): return f"{ML.get(int(m),str(m))} {int(y)}"
+def dlbl(dt): return f"{dt.day} {ML.get(dt.month,str(dt.month))} {dt.year}"
+def tis(val):
+    try: return int(float(str(val).strip()))
+    except: return 0
+def parse_h(x):
+    if pd.isna(x): return np.nan
+    m=re.match(r"(\d+)",str(x).strip())
+    return int(m.group(1)) if m else np.nan
+
+# ====================== GOOGLE SHEETS ======================
+def read_gid(sid,gid):
+    r=requests.get(f"https://docs.google.com/spreadsheets/d/{sid}/export?format=csv&gid={gid}",timeout=30)
+    if r.status_code!=200: raise RuntimeError(f"Sheet gid={gid} status={r.status_code}")
+    return pd.read_csv(StringIO(r.text))
+def read_tab(sid,tab):
+    r=requests.get(f"https://docs.google.com/spreadsheets/d/{sid}/gviz/tq?tqx=out:csv&sheet={requests.utils.quote(tab)}",timeout=30)
+    if r.status_code!=200: raise RuntimeError(f"Sheet tab={tab} status={r.status_code}")
+    return pd.read_csv(StringIO(r.text))
+def cc(df):
+    df.columns=[str(c).strip().lower().replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u") for c in df.columns]
     return df
 
-def safe_float(x):
-    try:
-        v = float(x)
-        return 0.0 if (np.isnan(v) or np.isinf(v)) else v
-    except:
-        return 0.0
-
-def fmt_num(x, decimals=0):
-    v = safe_float(x)
-    s = f"{v:,.{decimals}f}"
-    s = s.replace(",", "X").replace(".", ",").replace("X", ".")
-    if decimals == 0:
-        s = s.split(",")[0]
-    return s
-
-def fmt_currency(x):
-    v = safe_float(x)
-    s = f"${v:,.0f}"
-    return s.replace(",", "X").replace(".", ",").replace("X", ".")
-
-def mes_anio_label(y, m):
-    """Ej: 'Dic 2025'"""
-    return f"{MES_NOMBRES_LARGO.get(int(m), str(m))} {int(y)}"
-
-def fecha_label_dia(dt):
-    """Ej: '22 Oct 2025'"""
-    dia = dt.day
-    mes_str = MES_NOMBRES_LARGO.get(dt.month, str(dt.month))
-    return f"{dia} {mes_str} {dt.year}"
-
-def parse_hora_to_hour(x):
-    if pd.isna(x): return np.nan
-    s = str(x).strip()
-    if s == "": return np.nan
-    if re.fullmatch(r"\d+(\.\d+)?", s):
-        try: return int(float(s))
-        except: return np.nan
-    parts = s.split(":")
-    if len(parts) >= 1 and re.fullmatch(r"\d+", parts[0]):
-        try: return int(parts[0])
-        except: return np.nan
-    return np.nan
-
-# =========================
-# GOOGLE SHEETS READ
-# =========================
-def read_gsheet_csv_by_gid(sheet_id, gid):
-    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
-    r = requests.get(url, timeout=30)
-    if r.status_code != 200 or len(r.text) < 10:
-        raise RuntimeError("No pude leer Google Sheet por gid.")
-    return pd.read_csv(StringIO(r.text))
-
-def read_gsheet_csv_by_name(sheet_id, tab_name):
-    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={requests.utils.quote(tab_name)}"
-    r = requests.get(url, timeout=30)
-    if r.status_code != 200 or len(r.text) < 10:
-        raise RuntimeError("No pude leer Google Sheet por pestana.")
-    return pd.read_csv(StringIO(r.text))
-
 @st.cache_data(ttl=300)
-def cargar_datos_nube():
-    mensual = _clean_cols(read_gsheet_csv_by_name(SOLAR_SHEET_ID, SOLAR_TAB_MES))
-    diario  = _clean_cols(read_gsheet_csv_by_name(SOLAR_SHEET_ID, SOLAR_TAB_DIA))
-    horario = _clean_cols(read_gsheet_csv_by_name(SOLAR_SHEET_ID, SOLAR_TAB_HORA))
+def cargar():
+    # --- SOLAR ---
+    ms=cc(read_tab(SOLAR_SHEET_ID,SOLAR_TAB_MES))
+    di=cc(read_tab(SOLAR_SHEET_ID,SOLAR_TAB_DIA))
+    hr=cc(read_tab(SOLAR_SHEET_ID,SOLAR_TAB_HORA))
+    for d in [ms,di,hr]:
+        for old in ["año","ano"]:
+            if old in d.columns and "anio" not in d.columns: d["anio"]=d[old]
+    ms["planta"]=ms["planta"].astype(str).str.strip().str.upper()
+    ms["anio"]=ms["anio"].apply(tis); ms["mes"]=ms["mes"].apply(tis)
+    ms["energia_kwh"]=pd.to_numeric(ms["energia_kwh"],errors="coerce").fillna(0.0)
+    di["planta"]=di["planta"].astype(str).str.strip().str.upper()
+    di["energia_kwh"]=pd.to_numeric(di["energia_kwh"],errors="coerce").fillna(0.0)
+    di["fecha"]=pd.to_datetime(di["fecha"],errors="coerce",dayfirst=True)
+    hr["planta"]=hr["planta"].astype(str).str.strip().str.upper()
+    hr["energia_kwh"]=pd.to_numeric(hr["energia_kwh"],errors="coerce").fillna(0.0)
+    hr["fecha"]=pd.to_datetime(hr["fecha"],errors="coerce",dayfirst=True)
+    hr["hora_num"]=hr["hora"].apply(parse_h)
 
-    if "año" in mensual.columns and "anio" not in mensual.columns:
-        mensual["anio"] = mensual["año"]
-    if "energía_kwh" in mensual.columns and "energia_kwh" not in mensual.columns:
-        mensual["energia_kwh"] = mensual["energía_kwh"]
-
-    mensual["planta"] = mensual["planta"].astype(str).str.strip().str.upper()
-    mensual["anio"] = pd.to_numeric(mensual["anio"], errors="coerce").fillna(0).astype(int)
-    mensual["mes"]  = pd.to_numeric(mensual["mes"], errors="coerce").fillna(0).astype(int)
-    mensual["energia_kwh"] = pd.to_numeric(mensual["energia_kwh"], errors="coerce").fillna(0.0)
-
-    diario["planta"] = diario["planta"].astype(str).str.strip().str.upper()
-    diario["energia_kwh"] = pd.to_numeric(diario["energia_kwh"], errors="coerce").fillna(0.0)
-    diario["fecha"] = pd.to_datetime(diario["fecha"], errors="coerce", dayfirst=True)
-
-    horario["planta"] = horario["planta"].astype(str).str.strip().str.upper()
-    horario["energia_kwh"] = pd.to_numeric(horario["energia_kwh"], errors="coerce").fillna(0.0)
-    horario["fecha"] = pd.to_datetime(horario["fecha"], errors="coerce", dayfirst=True)
-    horario["hora_num"] = horario["hora"].apply(parse_hora_to_hour)
-    horario["hora_num"] = pd.to_numeric(horario["hora_num"], errors="coerce")
-
-    # EPM
-    epm_raw = _clean_cols(read_gsheet_csv_by_gid(EPM_SHEET_ID, EPM_GID_MES))
-    if "año" in epm_raw.columns and "anio" not in epm_raw.columns:
-        epm_raw["anio"] = epm_raw["año"]
-    for src in ["consumo_kwh", "epm (kwh)", "energia_kwh"]:
-        if src in epm_raw.columns and "epm_kwh" not in epm_raw.columns:
-            epm_raw["epm_kwh"] = epm_raw[src]
-    if "fecha" in epm_raw.columns and ("anio" not in epm_raw.columns or "mes" not in epm_raw.columns):
-        fx = pd.to_datetime(epm_raw["fecha"], errors="coerce", dayfirst=True)
-        epm_raw["anio"] = fx.dt.year; epm_raw["mes"] = fx.dt.month
-    if "planta" in epm_raw.columns:
-        epm_raw["planta"] = epm_raw["planta"].astype(str).str.strip().str.upper()
-    elif "sede" in epm_raw.columns:
-        epm_raw["planta"] = epm_raw["sede"].astype(str).str.strip().str.upper()
+    # --- EPM (BLINDADO) ---
+    ep=cc(read_gid(EPM_SHEET_ID,EPM_GID_MES))
+    for old in ["año","ano"]:
+        if old in ep.columns and "anio" not in ep.columns: ep["anio"]=ep[old]
+    if "planta" not in ep.columns and "sede" in ep.columns: ep["planta"]=ep["sede"]
+    if "planta" in ep.columns:
+        ep["planta"]=ep["planta"].astype(str).str.strip().str.upper()
     else:
-        epm_raw["planta"] = "TOTAL"
+        ep["planta"]="TOTAL"
 
-    costos_extra = {}
-    promedios_hist = {}
-    if "tipo" in epm_raw.columns:
-        cost_rows = epm_raw[epm_raw["tipo"].astype(str).str.contains("Valor|Costo", case=False, na=False)]
-        for _, cr in cost_rows.iterrows():
-            pl = str(cr.get("planta","")).strip().upper()
-            if pl in ["CAFE","MERCADO"]:
-                costos_extra[pl] = safe_float(cr.get("epm_kwh", 0))
-        hist_rows = epm_raw[epm_raw["tipo"].astype(str).str.contains("Promedio|Historico", case=False, na=False)]
-        for _, hr in hist_rows.iterrows():
-            pl = str(hr.get("planta","")).strip().upper()
-            if pl in ["CAFE","MERCADO"]:
-                promedios_hist[pl] = safe_float(hr.get("epm_kwh", 0))
-        epm_raw = epm_raw[epm_raw["tipo"].astype(str).str.contains("Consumo", case=False, na=False)].copy()
+    # ENCONTRAR COLUMNA kWh: intentar todas las variantes posibles
+    kwh_col = None
+    for c in ep.columns:
+        cl = c.strip().lower()
+        if cl in ["energia_kwh","energía_kwh","epm_kwh","consumo_kwh","epm (kwh)","kwh","consumo","valor"]:
+            kwh_col = c; break
+    if kwh_col is None:
+        # Buscar cualquier columna numerica que no sea anio/mes/dia
+        for c in ep.columns:
+            if c not in ["anio","ano","año","mes","dia","planta","sede","tipo","fecha"]:
+                test = pd.to_numeric(ep[c], errors="coerce")
+                if test.sum() > 100:
+                    kwh_col = c; break
+    if kwh_col:
+        ep["epm_kwh"] = pd.to_numeric(ep[kwh_col], errors="coerce").fillna(0.0)
+    else:
+        ep["epm_kwh"] = 0.0
 
-    epm_raw["anio"] = pd.to_numeric(epm_raw["anio"], errors="coerce").fillna(0).astype(int)
-    epm_raw["mes"]  = pd.to_numeric(epm_raw["mes"], errors="coerce").fillna(0).astype(int)
-    epm_raw["epm_kwh"] = pd.to_numeric(epm_raw["epm_kwh"], errors="coerce").fillna(0.0)
-    epm = epm_raw[epm_raw["mes"].between(1, 12)].copy()
+    # Extraer metadata
+    cx, ph = {}, {}
+    epm_debug_info = f"EPM cols: {list(ep.columns)}, kwh_col: {kwh_col}, rows: {len(ep)}"
+    if "tipo" in ep.columns:
+        for _,r in ep.iterrows():
+            t=str(r.get("tipo","")).lower().strip()
+            p=str(r.get("planta","")).strip().upper()
+            v=sf(r.get("epm_kwh",0))
+            if p in ["CAFE","MERCADO"]:
+                if "valor" in t or "costo" in t: cx[p]=v
+                if "promedio" in t or "historico" in t: ph[p]=v
+        ep=ep[ep["tipo"].astype(str).str.lower().str.contains("consumo",na=False)].copy()
+    epm_debug_info += f", after_filter: {len(ep)}"
 
-    # EPM estimado por hora (perfil campana)
-    epm_hora_list = []
-    perfil_hora = {}
-    for h in range(24):
-        perfil_hora[h] = max(0, 1 - abs(h - 12) / 7) if 6 <= h <= 18 else 0.15
-    total_perfil = sum(perfil_hora.values())
-    for h in range(24):
-        perfil_hora[h] /= total_perfil
-    for _, row in epm.iterrows():
-        for h in range(24):
-            epm_hora_list.append({
-                "anio": row["anio"], "mes": row["mes"], "planta": row["planta"],
-                "hora_num": h, "epm_kwh_hora": row["epm_kwh"] * perfil_hora[h]
-            })
-    epm_hora_df = pd.DataFrame(epm_hora_list) if epm_hora_list else pd.DataFrame(
-        columns=["anio","mes","planta","hora_num","epm_kwh_hora"])
+    # FORZAR tipos int
+    ep["anio"]=ep["anio"].apply(tis)
+    ep["mes"]=ep["mes"].apply(tis)
+    ep["epm_kwh"]=pd.to_numeric(ep["epm_kwh"],errors="coerce").fillna(0.0)
+    ep=ep[ep["mes"].between(1,12)].copy()
+    epm_debug_info += f", final: {len(ep)}, sum: {ep['epm_kwh'].sum()}"
 
-    return mensual, diario, horario, epm, epm_hora_df, costos_extra, promedios_hist
+    return ms, di, hr, ep, cx, ph, epm_debug_info
 
-
-# =========================
-# HEADER
-# =========================
+# ====================== HEADER ======================
 st.markdown("""
 <div class="header-wrap">
   <h1>Dashboard Energia Solar - GEDICOL</h1>
   <p>Monitoreo en tiempo real &middot; Plantas CAFE &amp; MERCADO</p>
-</div>
-""", unsafe_allow_html=True)
+</div>""", unsafe_allow_html=True)
 
-# =========================
-# LOAD DATA
-# =========================
+# ====================== LOAD ======================
 try:
-    mensual_df, diario_df, horario_df, epm_mensual_df, epm_hora_df, costos_extra, promedios_hist = cargar_datos_nube()
-    if costos_extra:
-        for k, v in costos_extra.items():
-            if v > 0:
-                COSTOS_EPM[k] = v
+    ms_df, di_df, hr_df, ep_df, cx, ph, epm_debug = cargar()
+    for k,v in cx.items():
+        if v>0: COSTOS_EPM[k]=v
 except Exception as e:
-    st.error(
-        "No pude leer tus Google Sheets. "
-        "Compartir > Cualquier persona con el enlace > Lector.\n\n"
-        f"Detalle: {e}"
-    )
+    st.error(f"Error leyendo Google Sheets.\n\n{e}\n\n{traceback.format_exc()}")
     st.stop()
 
-diario_df  = diario_df.dropna(subset=["fecha"])
-horario_df = horario_df.dropna(subset=["fecha", "hora_num"])
+di_df=di_df.dropna(subset=["fecha"])
+hr_df=hr_df.dropna(subset=["fecha","hora_num"])
 
-# Disponibles
-years_solar = set(mensual_df["anio"].unique().tolist())
-years_epm   = set(epm_mensual_df["anio"].unique().tolist())
-years_disponibles = sorted(list(years_solar | years_epm))
+ya=sorted(set(ms_df["anio"].unique())|set(ep_df["anio"].unique()))
+ma=sorted(set(ms_df["mes"].unique())|set(ep_df["mes"].unique()))
+pa=sorted(set(ms_df["planta"].unique())|{"CAFE","MERCADO"})
+min_f=di_df["fecha"].min().date() if not di_df.empty else datetime.today().date()
+max_f=di_df["fecha"].max().date() if not di_df.empty else datetime.today().date()
 
-meses_solar = set(mensual_df["mes"].unique().tolist())
-meses_epm   = set(epm_mensual_df["mes"].unique().tolist())
-meses_disponibles = sorted(list(meses_solar | meses_epm))
+# ====================== FILTROS ======================
+col_f,col_m=st.columns([1.1,3.2],gap="large")
 
-plantas_disponibles = sorted(list(set(mensual_df["planta"].unique().tolist()) | {"CAFE","MERCADO"}))
-min_fecha = diario_df["fecha"].min().date() if not diario_df.empty else datetime.today().date()
-max_fecha = diario_df["fecha"].max().date() if not diario_df.empty else datetime.today().date()
+with col_f:
+    st.markdown('<div class="left-card">',unsafe_allow_html=True)
+    st.markdown('<div class="left-title">Filtros</div>',unsafe_allow_html=True)
+    if st.button("Actualizar datos",use_container_width=True):
+        st.cache_data.clear(); st.rerun()
 
+    st.markdown('<div class="fsec">VISTA</div>',unsafe_allow_html=True)
+    vista=st.selectbox("v",["Mensual (Solar vs EPM)","Diario (Solar)","Hora (Solar)"],label_visibility="collapsed")
 
-# ==========================================
-# LAYOUT: FILTROS IZQUIERDA + CONTENIDO DERECHA
-# ==========================================
-col_filt, col_main = st.columns([1.1, 3.2], gap="large")
+    st.markdown('<div class="fsec">PLANTAS</div>',unsafe_allow_html=True)
+    all_pl=st.checkbox("Seleccionar todas",value=True,key="all_pl")
+    sel_pl=pa if all_pl else st.multiselect("p",pa,default=["CAFE","MERCADO"],label_visibility="collapsed")
 
-with col_filt:
-    st.markdown('<div class="left-card">', unsafe_allow_html=True)
-    st.markdown('<div class="left-title">Filtros</div>', unsafe_allow_html=True)
+    st.markdown('<div class="fsec">ANIOS</div>',unsafe_allow_html=True)
+    all_yr=st.checkbox("Seleccionar todos",value=True,key="all_yr")
+    sel_yr=ya if all_yr else st.multiselect("y",ya,default=ya,label_visibility="collapsed")
 
-    if st.button("Actualizar datos", use_container_width=True):
-        st.cache_data.clear()
-        st.rerun()
+    st.markdown('<div class="fsec">MESES</div>',unsafe_allow_html=True)
+    all_ms=st.checkbox("Seleccionar todos",value=True,key="all_ms")
+    sel_ms=ma if all_ms else st.multiselect("m",ma,default=ma,format_func=lambda x:ML.get(x,str(x)),label_visibility="collapsed")
 
-    st.markdown('<div class="filter-section">VISTA</div>', unsafe_allow_html=True)
-    vista = st.selectbox(
-        "Vista",
-        ["Mensual (Solar vs EPM)", "Diario (Solar)", "Hora (Solar)"],
-        index=0, label_visibility="collapsed",
-    )
+    st.markdown('<div class="fsec">RANGO FECHAS</div>',unsafe_allow_html=True)
+    fr=st.date_input("f",value=(min_f,max_f),min_value=min_f,max_value=max_f,label_visibility="collapsed")
 
-    st.markdown('<div class="filter-section">PLANTAS</div>', unsafe_allow_html=True)
-    selected_plantas = st.multiselect(
-        "Plantas", options=plantas_disponibles, default=["CAFE","MERCADO"],
-        label_visibility="collapsed",
-    )
+    st.markdown('<div class="fsec">RANGO HORARIO</div>',unsafe_allow_html=True)
+    h_min,h_max=st.select_slider("h",options=list(range(24)),value=(0,23),
+        format_func=lambda x:f"{x:02d}:00",label_visibility="collapsed")
 
-    st.markdown('<div class="filter-section">AÑOS</div>', unsafe_allow_html=True)
-    selected_years = st.multiselect(
-        "Años", options=years_disponibles, default=years_disponibles,
-        label_visibility="collapsed",
-    )
+    st.markdown('<div class="fsec">COSTOS kWh</div>',unsafe_allow_html=True)
+    st.markdown(f"**CAFE:** ${COSTOS_EPM['CAFE']:,}/kWh  \n**MERCADO:** ${COSTOS_EPM['MERCADO']:,}/kWh".replace(",","."))
+    if ph:
+        st.markdown('<div class="fsec">PROM. HISTORICO EPM</div>',unsafe_allow_html=True)
+        for p,v in ph.items(): st.markdown(f"**{p}:** {fn(v)} kWh/mes")
 
-    st.markdown('<div class="filter-section">MESES</div>', unsafe_allow_html=True)
-    selected_months = st.multiselect(
-        "Meses", options=meses_disponibles, default=meses_disponibles,
-        format_func=lambda x: MES_NOMBRES_LARGO.get(x, str(x)),
-        label_visibility="collapsed",
-    )
+    st.markdown(f'<div class="small-note">Datos: Google Sheets<br>Carga: {datetime.now().strftime("%d/%m/%Y %H:%M")}</div>',unsafe_allow_html=True)
 
-    st.markdown('<div class="filter-section">RANGO DIARIO / HORA</div>', unsafe_allow_html=True)
-    fecha_range = st.date_input(
-        "Rango", value=(min_fecha, max_fecha),
-        min_value=min_fecha, max_value=max_fecha,
-        label_visibility="collapsed",
-    )
+    # Debug EPM (colapsado)
+    with st.expander("Info tecnica EPM"):
+        st.caption(epm_debug)
+        if not ep_df.empty:
+            st.dataframe(ep_df[["anio","mes","planta","epm_kwh"]].head(20), hide_index=True, height=200)
+        else:
+            st.warning("EPM vacio despues de filtros")
 
-    st.markdown('<div class="filter-section">COSTOS kWh</div>', unsafe_allow_html=True)
-    costo_cafe_str = f"${COSTOS_EPM['CAFE']:,}/kWh".replace(",",".")
-    costo_merc_str = f"${COSTOS_EPM['MERCADO']:,}/kWh".replace(",",".")
-    st.markdown(
-        f"**CAFE:** {costo_cafe_str}  \n**MERCADO:** {costo_merc_str}",
-    )
+    st.markdown("</div>",unsafe_allow_html=True)
 
-    if promedios_hist:
-        st.markdown('<div class="filter-section">PROM. HISTORICO EPM</div>', unsafe_allow_html=True)
-        for pl, val in promedios_hist.items():
-            st.markdown(f"**{pl}:** {fmt_num(val,0)} kWh/mes")
+if not sel_pl: sel_pl=["CAFE","MERCADO"]
+if not sel_yr: sel_yr=ya
+if not sel_ms: sel_ms=ma
+fi,ff=(fr if isinstance(fr,tuple) and len(fr)==2 else (min_f,max_f))
 
-    st.markdown(
-        f'<div class="small-note">Datos desde Google Sheets.<br>'
-        f'Ultima carga: {datetime.now().strftime("%d/%m/%Y %H:%M")}</div>',
-        unsafe_allow_html=True,
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
+# ====================== FILTRADO ======================
+mf=ms_df[ms_df["planta"].isin(sel_pl)&ms_df["anio"].isin(sel_yr)&ms_df["mes"].isin(sel_ms)].copy()
+dff=di_df[di_df["planta"].isin(sel_pl)&(di_df["fecha"].dt.date>=fi)&(di_df["fecha"].dt.date<=ff)].copy()
+hf=hr_df[hr_df["planta"].isin(sel_pl)&(hr_df["fecha"].dt.date>=fi)&(hr_df["fecha"].dt.date<=ff)&(hr_df["hora_num"]>=h_min)&(hr_df["hora_num"]<=h_max)].copy()
+ef=ep_df[ep_df["anio"].isin(sel_yr)&ep_df["mes"].isin(sel_ms)].copy()
 
+# ====================== CONTENIDO ======================
+with col_m:
 
-# Defaults
-if not selected_plantas: selected_plantas = ["CAFE","MERCADO"]
-if not selected_years: selected_years = years_disponibles
-if not selected_months: selected_months = meses_disponibles
-if isinstance(fecha_range, tuple) and len(fecha_range) == 2:
-    fecha_inicio, fecha_fin = fecha_range
-else:
-    fecha_inicio, fecha_fin = min_fecha, max_fecha
-
-
-# =========================
-# FILTRADO
-# =========================
-mensual_filtrado = mensual_df[
-    mensual_df["planta"].isin(selected_plantas) &
-    mensual_df["anio"].isin(selected_years) &
-    mensual_df["mes"].isin(selected_months)
-].copy()
-
-diario_filtrado = diario_df[
-    diario_df["planta"].isin(selected_plantas) &
-    (diario_df["fecha"].dt.date >= fecha_inicio) &
-    (diario_df["fecha"].dt.date <= fecha_fin)
-].copy()
-
-horario_filtrado = horario_df[
-    horario_df["planta"].isin(selected_plantas) &
-    (horario_df["fecha"].dt.date >= fecha_inicio) &
-    (horario_df["fecha"].dt.date <= fecha_fin)
-].copy()
-
-epm_filtrado = epm_mensual_df[
-    epm_mensual_df["anio"].isin(selected_years) &
-    epm_mensual_df["mes"].isin(selected_months)
-].copy()
-
-epm_hora_filtrado = epm_hora_df[
-    epm_hora_df["anio"].isin(selected_years) &
-    epm_hora_df["mes"].isin(selected_months)
-].copy()
-
-
-# =========================
-# KPIs GLOBALES
-# =========================
-gen_cafe  = mensual_filtrado[mensual_filtrado["planta"]=="CAFE"]["energia_kwh"].sum()
-gen_merc  = mensual_filtrado[mensual_filtrado["planta"]=="MERCADO"]["energia_kwh"].sum()
-gen_total = gen_cafe + gen_merc
-
-epm_total_kwh = epm_filtrado["epm_kwh"].sum()
-epm_cafe_kwh  = epm_filtrado[epm_filtrado["planta"]=="CAFE"]["epm_kwh"].sum()
-epm_merc_kwh  = epm_filtrado[epm_filtrado["planta"]=="MERCADO"]["epm_kwh"].sum()
-
-dias_activos = diario_filtrado["fecha"].dt.date.nunique()
-prom_diario  = gen_total / dias_activos if dias_activos else 0
-
-ahorro_cafe  = gen_cafe * COSTOS_EPM.get("CAFE", 0)
-ahorro_merc  = gen_merc * COSTOS_EPM.get("MERCADO", 0)
-ahorro_total = ahorro_cafe + ahorro_merc
-
-cobertura_pct = (gen_total / epm_total_kwh * 100) if epm_total_kwh > 0 else 0
-n_meses_solar = mensual_filtrado.groupby(["anio","mes"]).ngroups
-prom_mensual  = gen_total / n_meses_solar if n_meses_solar > 0 else 0
-
-
-# ==========================================
-# CONTENIDO DERECHA
-# ==========================================
-with col_main:
-
-    # ── KPIs ──
-    cob_color = "#10b981" if cobertura_pct >= 20 else "#ef4444"
-    st.markdown(f"""
-    <div class="kpi-row">
-      <div class="kpi-card total">
-        <div class="kpi-label">Solar Total</div>
-        <div class="kpi-value" style="color:{COLOR_TOTAL};">{fmt_num(gen_total,1)} kWh</div>
-        <div class="kpi-sub">Prom mensual: {fmt_num(prom_mensual,0)} kWh &middot; Prom diario: {fmt_num(prom_diario,1)} kWh</div>
-      </div>
-      <div class="kpi-card cafe">
-        <div class="kpi-label">Solar CAFE</div>
-        <div class="kpi-value" style="color:{COLOR_CAFE};">{fmt_num(gen_cafe,1)} kWh</div>
-        <div class="kpi-sub">Ahorro: {fmt_currency(ahorro_cafe)}</div>
-      </div>
-      <div class="kpi-card merc">
-        <div class="kpi-label">Solar MERCADO</div>
-        <div class="kpi-value" style="color:{COLOR_MERC};">{fmt_num(gen_merc,1)} kWh</div>
-        <div class="kpi-sub">Ahorro: {fmt_currency(ahorro_merc)}</div>
-      </div>
-      <div class="kpi-card ahorro">
-        <div class="kpi-label">Ahorro Total</div>
-        <div class="kpi-value" style="color:{COLOR_AMBAR};">{fmt_currency(ahorro_total)}</div>
-        <div class="kpi-sub">{dias_activos} dias con generacion</div>
-      </div>
-      <div class="kpi-card cob">
-        <div class="kpi-label">Cobertura Solar</div>
-        <div class="kpi-value" style="color:{cob_color};">{fmt_num(cobertura_pct,1)}%</div>
-        <div class="kpi-sub">EPM consumido: {fmt_num(epm_total_kwh,0)} kWh</div>
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-    # ═══════════════════════════════════════
-    # VISTA MENSUAL
-    # ═══════════════════════════════════════
+    # =====================================================
+    #  MENSUAL
+    # =====================================================
     if vista.startswith("Mensual"):
+        # KPIs MENSUALES
+        gc=mf[mf["planta"]=="CAFE"]["energia_kwh"].sum()
+        gm=mf[mf["planta"]=="MERCADO"]["energia_kwh"].sum()
+        gt_=gc+gm
+        et_=ef["epm_kwh"].sum()
+        ec_=ef[ef["planta"]=="CAFE"]["epm_kwh"].sum()
+        em_=ef[ef["planta"]=="MERCADO"]["epm_kwh"].sum()
+        ac_=gc*COSTOS_EPM["CAFE"]; am_=gm*COSTOS_EPM["MERCADO"]; at_=ac_+am_
+        cp_=(gt_/et_*100) if et_>0 else 0
+
+        st.markdown(f"""
+        <div class="kpi-row">
+          <div class="kpi-card c3"><div class="kl">Solar Total</div>
+            <div class="kv" style="color:{COLOR_TOTAL}">{fn(gt_,1)} kWh</div></div>
+          <div class="kpi-card c5"><div class="kl">EPM Total</div>
+            <div class="kv" style="color:#ef4444">{fn(et_)} kWh</div></div>
+          <div class="kpi-card c4"><div class="kl">Ahorro Total</div>
+            <div class="kv" style="color:{COLOR_AMBAR}">{fc(at_)}</div></div>
+          <div class="kpi-card c1"><div class="kl">Cobertura</div>
+            <div class="kv" style="color:{COLOR_CAFE}">{fn(cp_,1)}%</div>
+            <div class="ks">Solar / EPM</div></div>
+        </div>""",unsafe_allow_html=True)
+
         st.markdown("## Mensual: Solar vs EPM")
 
-        # Preparar datos: Solar pivotado
-        sol = mensual_filtrado.groupby(["anio","mes","planta"], as_index=False)["energia_kwh"].sum()
-        sol_p = sol.pivot_table(index=["anio","mes"], columns="planta", values="energia_kwh",
-                                aggfunc="sum", fill_value=0).reset_index()
+        # Solar pivot
+        sp=mf.groupby(["anio","mes","planta"],as_index=False)["energia_kwh"].sum()
+        sp=sp.pivot_table(index=["anio","mes"],columns="planta",values="energia_kwh",aggfunc="sum",fill_value=0).reset_index()
         for c in ["CAFE","MERCADO"]:
-            if c not in sol_p.columns: sol_p[c] = 0.0
-        sol_p["SOLAR_TOTAL"] = sol_p["CAFE"] + sol_p["MERCADO"]
+            if c not in sp.columns: sp[c]=0.0
+        sp["SOL_T"]=sp["CAFE"]+sp["MERCADO"]
 
-        # EPM pivotado (FILTRAR solo por plantas seleccionadas)
-        epm = epm_filtrado.copy()
-        if "planta" in epm.columns:
-            epm_sel = epm[epm["planta"].isin(selected_plantas)]
-        else:
-            epm_sel = epm
-        if "planta" in epm_sel.columns and epm_sel["planta"].nunique() > 1:
-            epm_p = epm_sel.pivot_table(index=["anio","mes"], columns="planta", values="epm_kwh",
-                                         aggfunc="sum", fill_value=0).reset_index()
-            for c in ["CAFE","MERCADO"]:
-                if c not in epm_p.columns: epm_p[c] = 0.0
-            epm_p["EPM_TOTAL"] = epm_p["CAFE"] + epm_p["MERCADO"]
-            epm_p = epm_p.rename(columns={"CAFE":"EPM_CAFE","MERCADO":"EPM_MERCADO"})
-        else:
-            epm_sum = epm_sel.groupby(["anio","mes"], as_index=False)["epm_kwh"].sum()
-            epm_p = epm_sum.copy()
-            epm_p["EPM_CAFE"] = 0.0
-            epm_p["EPM_MERCADO"] = 0.0
-            epm_p["EPM_TOTAL"] = epm_p["epm_kwh"]
-            epm_p = epm_p.drop(columns=["epm_kwh"])
+        # EPM pivot
+        epp=ef.pivot_table(index=["anio","mes"],columns="planta",values="epm_kwh",aggfunc="sum",fill_value=0).reset_index()
+        for c in ["CAFE","MERCADO"]:
+            if c not in epp.columns: epp[c]=0.0
+        epp["EPM_T"]=epp["CAFE"]+epp["MERCADO"]
+        epp=epp.rename(columns={"CAFE":"EC","MERCADO":"EM"})
 
-        # MERGE OUTER para tener TODOS los meses (incluyendo EPM sin Solar)
-        base = pd.merge(sol_p, epm_p, on=["anio","mes"], how="outer")
-        for c in ["CAFE","MERCADO","SOLAR_TOTAL","EPM_CAFE","EPM_MERCADO","EPM_TOTAL"]:
-            if c not in base.columns: base[c] = 0.0
-            base[c] = base[c].fillna(0.0)
-        base = base.sort_values(["anio","mes"]).reset_index(drop=True)
-        base["Mes_label"] = base.apply(lambda r: mes_anio_label(r["anio"], r["mes"]), axis=1)
-        base["Cobertura"] = base.apply(
-            lambda r: (r["SOLAR_TOTAL"]/r["EPM_TOTAL"]*100) if r["EPM_TOTAL"]>0 else 0, axis=1)
-        base["Ahorro"] = (base["CAFE"]*COSTOS_EPM["CAFE"]) + (base["MERCADO"]*COSTOS_EPM["MERCADO"])
+        # Merge OUTER
+        b=pd.merge(sp,epp,on=["anio","mes"],how="outer")
+        for c in ["CAFE","MERCADO","SOL_T","EC","EM","EPM_T"]:
+            if c not in b.columns: b[c]=0.0
+            b[c]=b[c].fillna(0.0)
+        b["anio"]=b["anio"].apply(tis); b["mes"]=b["mes"].apply(tis)
+        b=b.sort_values(["anio","mes"]).reset_index(drop=True)
+        b["Mes"]=b.apply(lambda r:mlbl(r["anio"],r["mes"]),axis=1)
+        b["Cob"]=b.apply(lambda r:(r["SOL_T"]/r["EPM_T"]*100) if r["EPM_T"]>0 else 0,axis=1)
+        b["Ahorro"]=b["CAFE"]*COSTOS_EPM["CAFE"]+b["MERCADO"]*COSTOS_EPM["MERCADO"]
 
-        # ── GRAFICO PRINCIPAL ──
-        st.markdown('<div class="panel">', unsafe_allow_html=True)
-        st.markdown('<div class="panel-title">Generacion Solar vs Consumo EPM</div>', unsafe_allow_html=True)
-        st.markdown(
-            '<div class="panel-sub">Barras solidas: Solar | Barras rayadas: EPM (agrupadas) | '
-            'Linea: % cobertura | Punteadas: promedios</div>',
-            unsafe_allow_html=True,
-        )
+        # GRAFICO
+        st.markdown('<div class="panel"><div class="pt">Generacion Solar vs Consumo EPM</div>',unsafe_allow_html=True)
+        st.markdown('<div class="ps">Barras solidas: Solar | Barras con patron: EPM | Linea: % cobertura | Punteadas: promedios por planta</div>',unsafe_allow_html=True)
+        fig=make_subplots(specs=[[{"secondary_y":True}]])
+        fig.add_trace(go.Bar(name="Solar CAFE",x=b["Mes"],y=b["CAFE"],marker_color=COLOR_CAFE,offsetgroup="solar",
+            text=b["CAFE"].apply(lambda v:fn(v) if v>0 else ""),textposition="inside",textfont=dict(size=10,color="white")))
+        fig.add_trace(go.Bar(name="Solar MERCADO",x=b["Mes"],y=b["MERCADO"],marker_color=COLOR_MERC,offsetgroup="solar",
+            text=b["MERCADO"].apply(lambda v:fn(v) if v>0 else ""),textposition="inside",textfont=dict(size=10,color="white")))
+        fig.add_trace(go.Bar(name="EPM CAFE",x=b["Mes"],y=b["EC"],marker_color=COLOR_CAFE,
+            marker_line=dict(width=2,color=COLOR_CAFE),marker_pattern_shape="/",opacity=.5,offsetgroup="epm",
+            text=b["EC"].apply(lambda v:fn(v) if v>0 else ""),textposition="inside",textfont=dict(size=9,color="#1e293b")))
+        fig.add_trace(go.Bar(name="EPM MERCADO",x=b["Mes"],y=b["EM"],marker_color=COLOR_MERC,
+            marker_line=dict(width=2,color=COLOR_MERC),marker_pattern_shape="/",opacity=.5,offsetgroup="epm",
+            text=b["EM"].apply(lambda v:fn(v) if v>0 else ""),textposition="inside",textfont=dict(size=9,color="#1e293b")))
+        fig.add_trace(go.Scatter(name="% Cobertura",x=b["Mes"],y=b["Cob"],mode="lines+markers+text",
+            line=dict(color=COLOR_AMBAR,width=3),marker=dict(size=10,color=COLOR_AMBAR,line=dict(width=2,color="white")),
+            text=b["Cob"].apply(lambda v:f"{v:.0f}%"),textposition="top center",textfont=dict(size=11,color=COLOR_AMBAR)),secondary_y=True)
+        # Promedios por planta
+        sc=b[b["CAFE"]>0]; sm=b[b["MERCADO"]>0]
+        avc=sf(sc["CAFE"].mean()) if not sc.empty else 0
+        avm=sf(sm["MERCADO"].mean()) if not sm.empty else 0
+        if avc>0:
+            fig.add_hline(y=avc,line_dash="dot",line_color=COLOR_CAFE,line_width=2,
+                annotation_text=f"Prom CAFE: {fn(avc)} kWh",annotation_position="top left",
+                annotation_font=dict(size=10,color=COLOR_CAFE))
+        if avm>0:
+            fig.add_hline(y=avm,line_dash="dash",line_color=COLOR_MERC,line_width=2,
+                annotation_text=f"Prom MERCADO: {fn(avm)} kWh",annotation_position="bottom right",
+                annotation_font=dict(size=10,color=COLOR_MERC))
+        mc=b["Cob"].max()
+        fig.update_layout(barmode="stack",bargroupgap=.12,bargap=.25,
+            yaxis_title="Energia (kWh)",yaxis2_title="Cobertura (%)",
+            yaxis2=dict(range=[0,max(mc*1.3,100) if mc>0 else 100],showgrid=False))
+        fig=aplyt(fig,500)
+        st.plotly_chart(fig,use_container_width=True)
+        st.markdown('</div>',unsafe_allow_html=True)
 
-        fig = make_subplots(specs=[[{"secondary_y": True}]])
-
-        fig.add_trace(go.Bar(
-            name="Solar CAFE", x=base["Mes_label"], y=base["CAFE"],
-            marker_color=COLOR_CAFE, opacity=0.95,
-            offsetgroup="solar",
-            text=base["CAFE"].apply(lambda v: fmt_num(v,0) if v > 0 else ""),
-            textposition="inside", textfont=dict(size=10, color="white"),
-        ))
-        fig.add_trace(go.Bar(
-            name="Solar MERCADO", x=base["Mes_label"], y=base["MERCADO"],
-            marker_color=COLOR_MERC, opacity=0.95,
-            offsetgroup="solar",
-            text=base["MERCADO"].apply(lambda v: fmt_num(v,0) if v > 0 else ""),
-            textposition="inside", textfont=dict(size=10, color="white"),
-        ))
-        fig.add_trace(go.Bar(
-            name="EPM CAFE", x=base["Mes_label"], y=base["EPM_CAFE"],
-            marker_color=COLOR_CAFE, marker_line=dict(width=1.5, color=COLOR_CAFE),
-            marker_pattern_shape="/", opacity=0.45,
-            offsetgroup="epm",
-            text=base["EPM_CAFE"].apply(lambda v: fmt_num(v,0) if v > 0 else ""),
-            textposition="inside", textfont=dict(size=9, color="#0f172a"),
-        ))
-        fig.add_trace(go.Bar(
-            name="EPM MERCADO", x=base["Mes_label"], y=base["EPM_MERCADO"],
-            marker_color=COLOR_MERC, marker_line=dict(width=1.5, color=COLOR_MERC),
-            marker_pattern_shape="/", opacity=0.45,
-            offsetgroup="epm",
-            text=base["EPM_MERCADO"].apply(lambda v: fmt_num(v,0) if v > 0 else ""),
-            textposition="inside", textfont=dict(size=9, color="#0f172a"),
-        ))
-        fig.add_trace(go.Scatter(
-            name="% Cobertura", x=base["Mes_label"], y=base["Cobertura"],
-            mode="lines+markers+text",
-            line=dict(color=COLOR_AMBAR, width=3),
-            marker=dict(size=10, color=COLOR_AMBAR, line=dict(width=2, color="white")),
-            text=base["Cobertura"].apply(lambda v: f"{v:.0f}%"),
-            textposition="top center", textfont=dict(size=11, color=COLOR_AMBAR),
-        ), secondary_y=True)
-
-        # Promedios (solo meses CON datos solares para promedio solar)
-        meses_con_solar = base[base["SOLAR_TOTAL"] > 0]
-        avg_solar = safe_float(meses_con_solar["SOLAR_TOTAL"].mean()) if not meses_con_solar.empty else 0
-        avg_epm = safe_float(base[base["EPM_TOTAL"] > 0]["EPM_TOTAL"].mean())
-
-        if avg_solar > 0:
-            fig.add_hline(y=avg_solar, line_dash="dot", line_color=COLOR_TOTAL, line_width=2,
-                annotation_text=f"Prom Solar: {fmt_num(avg_solar,0)} kWh",
-                annotation_position="top left",
-                annotation_font=dict(size=11, color=COLOR_TOTAL))
-        if avg_epm > 0:
-            fig.add_hline(y=avg_epm, line_dash="dot", line_color="#ef4444", line_width=1.5,
-                annotation_text=f"Prom EPM: {fmt_num(avg_epm,0)} kWh",
-                annotation_position="bottom left",
-                annotation_font=dict(size=11, color="#ef4444"))
-
-        max_cob = base["Cobertura"].max()
-        fig.update_layout(
-            barmode="stack", bargroupgap=0.15, bargap=0.3,
-            yaxis_title="Energia (kWh)",
-            yaxis2_title="Cobertura (%)",
-            yaxis2=dict(range=[0, max(max_cob * 1.3, 100) if max_cob > 0 else 100], showgrid=False),
-        )
-        fig = apply_light(fig, h=500)
-        st.plotly_chart(fig, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # ── FILA: Tortas + Gauge + Ahorro ──
-        c1, c2, c3, c4 = st.columns(4)
-
+        # Tortas + Ahorro
+        c1,c2,c3=st.columns(3)
         with c1:
-            st.markdown('<div class="panel"><div class="panel-title">Solar por Planta</div>', unsafe_allow_html=True)
-            fig_ps = go.Figure(go.Pie(
-                labels=["CAFE","MERCADO"], values=[safe_float(gen_cafe), safe_float(gen_merc)],
-                hole=0.55, marker=dict(colors=[COLOR_CAFE, COLOR_MERC], line=dict(color="white", width=3)),
-                textinfo="label+percent", textfont=dict(size=11, color="#0f172a"),
-            ))
-            fig_ps.add_annotation(
-                text=f"<b>{fmt_num(gen_total,0)}</b><br><span style='font-size:9px;color:#64748b'>kWh</span>",
-                x=0.5, y=0.5, showarrow=False, font=dict(size=16, color="#0f172a"))
-            fig_ps.update_layout(paper_bgcolor="rgba(0,0,0,0)", showlegend=False,
-                height=250, margin=dict(l=10,r=10,t=10,b=10))
-            st.plotly_chart(fig_ps, use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-
+            st.markdown('<div class="panel"><div class="pt">Solar por Planta</div>',unsafe_allow_html=True)
+            fp=go.Figure(go.Pie(labels=["CAFE","MERCADO"],values=[sf(gc),sf(gm)],hole=.55,
+                marker=dict(colors=[COLOR_CAFE,COLOR_MERC],line=dict(color="white",width=3)),
+                textinfo="label+percent",textfont=dict(size=11)))
+            fp.add_annotation(text=f"<b>{fn(gt_)}</b><br><span style='font-size:9px;color:#64748b'>kWh</span>",
+                x=.5,y=.5,showarrow=False,font=dict(size=16,color="#0f172a"))
+            fp.update_layout(paper_bgcolor="rgba(0,0,0,0)",showlegend=False,height=260,margin=dict(l=10,r=10,t=10,b=10))
+            st.plotly_chart(fp,use_container_width=True)
+            st.markdown('</div>',unsafe_allow_html=True)
         with c2:
-            st.markdown('<div class="panel"><div class="panel-title">EPM por Planta</div>', unsafe_allow_html=True)
-            fig_pe = go.Figure(go.Pie(
-                labels=["CAFE","MERCADO"], values=[safe_float(epm_cafe_kwh), safe_float(epm_merc_kwh)],
-                hole=0.55, marker=dict(colors=[COLOR_CAFE, COLOR_MERC], line=dict(color="white", width=3)),
-                textinfo="label+percent", textfont=dict(size=11, color="#0f172a"),
-            ))
-            fig_pe.add_annotation(
-                text=f"<b>{fmt_num(epm_total_kwh,0)}</b><br><span style='font-size:9px;color:#64748b'>kWh</span>",
-                x=0.5, y=0.5, showarrow=False, font=dict(size=16, color="#0f172a"))
-            fig_pe.update_layout(paper_bgcolor="rgba(0,0,0,0)", showlegend=False,
-                height=250, margin=dict(l=10,r=10,t=10,b=10))
-            st.plotly_chart(fig_pe, use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-
+            st.markdown('<div class="panel"><div class="pt">EPM por Planta</div>',unsafe_allow_html=True)
+            fp2=go.Figure(go.Pie(labels=["CAFE","MERCADO"],values=[sf(ec_),sf(em_)],hole=.55,
+                marker=dict(colors=[COLOR_CAFE,COLOR_MERC],line=dict(color="white",width=3)),
+                textinfo="label+percent",textfont=dict(size=11)))
+            fp2.add_annotation(text=f"<b>{fn(et_)}</b><br><span style='font-size:9px;color:#64748b'>kWh</span>",
+                x=.5,y=.5,showarrow=False,font=dict(size=16,color="#0f172a"))
+            fp2.update_layout(paper_bgcolor="rgba(0,0,0,0)",showlegend=False,height=260,margin=dict(l=10,r=10,t=10,b=10))
+            st.plotly_chart(fp2,use_container_width=True)
+            st.markdown('</div>',unsafe_allow_html=True)
         with c3:
-            st.markdown('<div class="panel"><div class="panel-title">Cobertura Solar</div>', unsafe_allow_html=True)
-            fig_g = go.Figure(go.Indicator(
-                mode="gauge+number", value=cobertura_pct,
-                number=dict(suffix="%", font=dict(size=36, color="#0f172a")),
-                gauge=dict(
-                    axis=dict(range=[0,100], tickfont=dict(size=10)),
-                    bar=dict(color=COLOR_MERC, thickness=0.3),
-                    bgcolor="#f1f5f9", borderwidth=1, bordercolor="#e2e8f0",
-                    steps=[
-                        dict(range=[0,20], color="#fef2f2"),
-                        dict(range=[20,50], color="#fffbeb"),
-                        dict(range=[50,100], color="#ecfdf5"),
-                    ],
-                    threshold=dict(line=dict(color=COLOR_AMBAR, width=3), thickness=0.8, value=cobertura_pct),
-                ),
-            ))
-            fig_g.update_layout(paper_bgcolor="rgba(0,0,0,0)", height=250, margin=dict(l=30,r=30,t=30,b=10))
-            st.plotly_chart(fig_g, use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('<div class="panel"><div class="pt">Ahorro por Mes</div>',unsafe_allow_html=True)
+            fa=go.Figure(go.Bar(x=b["Mes"],y=b["Ahorro"],marker_color=COLOR_AMBAR,
+                text=b["Ahorro"].apply(lambda v:fc(v) if v>0 else ""),textposition="outside",textfont=dict(size=9,color=COLOR_AMBAR)))
+            fa.update_layout(showlegend=False,yaxis_title="$COP")
+            fa=aplyt(fa,260)
+            st.plotly_chart(fa,use_container_width=True)
+            st.markdown('</div>',unsafe_allow_html=True)
 
-        with c4:
-            st.markdown('<div class="panel"><div class="panel-title">Ahorro por Mes</div>', unsafe_allow_html=True)
-            fig_a = go.Figure(go.Bar(
-                x=base["Mes_label"], y=base["Ahorro"], marker_color=COLOR_AMBAR,
-                text=base["Ahorro"].apply(lambda v: fmt_currency(v) if v > 0 else ""),
-                textposition="outside", textfont=dict(size=9, color=COLOR_AMBAR),
-            ))
-            meses_con_ahorro = base[base["Ahorro"] > 0]
-            avg_ah = safe_float(meses_con_ahorro["Ahorro"].mean()) if not meses_con_ahorro.empty else 0
-            if avg_ah > 0:
-                fig_a.add_hline(y=avg_ah, line_dash="dot", line_color=COLOR_TOTAL, line_width=2,
-                    annotation_text=f"Prom: {fmt_currency(avg_ah)}",
-                    annotation_font=dict(size=10, color=COLOR_TOTAL))
-            fig_a.update_layout(showlegend=False, yaxis_title="$COP")
-            fig_a = apply_light(fig_a, h=250)
-            st.plotly_chart(fig_a, use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+        # Tendencia
+        st.markdown('<div class="panel"><div class="pt">Tendencia Mensual</div>',unsafe_allow_html=True)
+        ft=go.Figure()
+        ft.add_trace(go.Scatter(name="EPM Total",x=b["Mes"],y=b["EPM_T"],mode="lines+markers",
+            line=dict(color="#ef4444",width=2.5),marker=dict(size=8,color="#ef4444",line=dict(width=2,color="white")),
+            fill="tozeroy",fillcolor="rgba(239,68,68,.06)"))
+        ft.add_trace(go.Scatter(name="Solar Total",x=b["Mes"],y=b["SOL_T"],mode="lines+markers",
+            line=dict(color=COLOR_TOTAL,width=3),marker=dict(size=9,color=COLOR_TOTAL,line=dict(width=2,color="white")),
+            fill="tozeroy",fillcolor="rgba(139,92,246,.08)"))
+        ft.update_layout(yaxis_title="Energia (kWh)")
+        ft=aplyt(ft,350)
+        st.plotly_chart(ft,use_container_width=True)
+        st.markdown('</div>',unsafe_allow_html=True)
 
-        # ── Tendencia linea ──
-        st.markdown('<div class="panel">', unsafe_allow_html=True)
-        st.markdown('<div class="panel-title">Tendencia Mensual - Solar vs EPM</div>', unsafe_allow_html=True)
-        fig_t = go.Figure()
-        fig_t.add_trace(go.Scatter(
-            name="EPM Total", x=base["Mes_label"], y=base["EPM_TOTAL"],
-            mode="lines+markers",
-            line=dict(color="#ef4444", width=2.5),
-            marker=dict(size=8, color="#ef4444", line=dict(width=2, color="white")),
-            fill="tozeroy", fillcolor="rgba(239,68,68,0.06)",
-        ))
-        fig_t.add_trace(go.Scatter(
-            name="Solar Total", x=base["Mes_label"], y=base["SOLAR_TOTAL"],
-            mode="lines+markers",
-            line=dict(color=COLOR_TOTAL, width=3),
-            marker=dict(size=9, color=COLOR_TOTAL, line=dict(width=2, color="white")),
-            fill="tozeroy", fillcolor="rgba(139,92,246,0.08)",
-        ))
-        fig_t.update_layout(yaxis_title="Energia (kWh)")
-        fig_t = apply_light(fig_t, h=350)
-        st.plotly_chart(fig_t, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # ── TABLA RESUMEN MENSUAL ──
-        st.markdown('<div class="panel"><div class="panel-title">Tabla Resumen Mensual</div>', unsafe_allow_html=True)
-        resumen = pd.DataFrame({
-            "Mes": base["Mes_label"],
-            "Solar CAFE (kWh)": base["CAFE"].round(1),
-            "Solar MERCADO (kWh)": base["MERCADO"].round(1),
-            "Solar TOTAL (kWh)": base["SOLAR_TOTAL"].round(1),
-            "EPM CAFE (kWh)": base["EPM_CAFE"].round(0).astype(int),
-            "EPM MERCADO (kWh)": base["EPM_MERCADO"].round(0).astype(int),
-            "EPM TOTAL (kWh)": base["EPM_TOTAL"].round(0).astype(int),
-            "Cobertura": base["Cobertura"].round(1).astype(str) + "%",
-            "Ahorro ($)": base["Ahorro"].apply(fmt_currency),
-        })
-        st.dataframe(resumen, use_container_width=True, hide_index=True)
-        st.markdown(f"""
-        <div class="stat-grid">
-          <div class="stat-card"><div class="stat-label">Total Solar</div>
-            <div class="stat-value" style="color:{COLOR_TOTAL};">{fmt_num(gen_total,0)}</div>
-            <div class="stat-extra">kWh</div></div>
-          <div class="stat-card"><div class="stat-label">Total EPM</div>
-            <div class="stat-value" style="color:#ef4444;">{fmt_num(epm_total_kwh,0)}</div>
-            <div class="stat-extra">kWh</div></div>
-          <div class="stat-card"><div class="stat-label">Ahorro Total</div>
-            <div class="stat-value" style="color:{COLOR_AMBAR};">{fmt_currency(ahorro_total)}</div>
-            <div class="stat-extra">COP</div></div>
-          <div class="stat-card"><div class="stat-label">Cobertura</div>
-            <div class="stat-value" style="color:{COLOR_MERC};">{fmt_num(cobertura_pct,1)}%</div>
-            <div class="stat-extra">promedio general</div></div>
-        </div>
-        """, unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        # TABLA
+        st.markdown('<div class="panel"><div class="pt">Tabla Resumen Mensual</div>',unsafe_allow_html=True)
+        tbl=pd.DataFrame({"Mes":b["Mes"],"Solar CAFE":b["CAFE"].round(1),"Solar MERCADO":b["MERCADO"].round(1),
+            "Solar TOTAL":b["SOL_T"].round(1),"EPM CAFE":b["EC"].round(0).astype(int),
+            "EPM MERCADO":b["EM"].round(0).astype(int),"EPM TOTAL":b["EPM_T"].round(0).astype(int),
+            "Cobertura %":b["Cob"].round(1),"Ahorro COP":b["Ahorro"].round(0).astype(int)})
+        st.dataframe(tbl,use_container_width=True,hide_index=True,
+            column_config={
+                "Solar CAFE":st.column_config.NumberColumn(format="%.1f kWh"),
+                "Solar MERCADO":st.column_config.NumberColumn(format="%.1f kWh"),
+                "Solar TOTAL":st.column_config.NumberColumn(format="%.1f kWh"),
+                "EPM CAFE":st.column_config.NumberColumn(format="%d kWh"),
+                "EPM MERCADO":st.column_config.NumberColumn(format="%d kWh"),
+                "EPM TOTAL":st.column_config.NumberColumn(format="%d kWh"),
+                "Cobertura %":st.column_config.ProgressColumn(min_value=0,max_value=100,format="%.1f%%"),
+                "Ahorro COP":st.column_config.NumberColumn(format="$%d"),
+            })
+        st.markdown('</div>',unsafe_allow_html=True)
 
 
-    # ═══════════════════════════════════════
-    # VISTA DIARIO
-    # ═══════════════════════════════════════
+    # =====================================================
+    #  DIARIO
+    # =====================================================
     elif vista.startswith("Diario"):
+        # KPIs DIARIOS
+        da_=dff.groupby(["fecha","planta"],as_index=False)["energia_kwh"].sum()
+        dt_=dff.groupby("fecha",as_index=False)["energia_kwh"].sum()
+        pc_=da_[(da_["planta"]=="CAFE")&(da_["energia_kwh"]>0)]
+        pm_=da_[(da_["planta"]=="MERCADO")&(da_["energia_kwh"]>0)]
+        avc=sf(pc_["energia_kwh"].mean()) if not pc_.empty else 0
+        avm=sf(pm_["energia_kwh"].mean()) if not pm_.empty else 0
+        dt_pos=dt_[dt_["energia_kwh"]>0]
+        avt=sf(dt_pos["energia_kwh"].mean()) if not dt_pos.empty else 0
+        dias=len(dt_pos)
+        gtd=dff["energia_kwh"].sum()
+        ahd=da_[da_["planta"]=="CAFE"]["energia_kwh"].sum()*COSTOS_EPM["CAFE"]+da_[da_["planta"]=="MERCADO"]["energia_kwh"].sum()*COSTOS_EPM["MERCADO"]
+        mx=dt_.loc[dt_["energia_kwh"].idxmax()] if not dt_.empty else None
+        bv=fn(mx["energia_kwh"]) if mx is not None else "-"
+        bd=dlbl(mx["fecha"]) if mx is not None else ""
+
+        st.markdown(f"""
+        <div class="kpi-row">
+          <div class="kpi-card c1"><div class="kl">Prom CAFE/dia</div>
+            <div class="kv" style="color:{COLOR_CAFE}">{fn(avc,1)} kWh</div></div>
+          <div class="kpi-card c2"><div class="kl">Prom MERCADO/dia</div>
+            <div class="kv" style="color:{COLOR_MERC}">{fn(avm,1)} kWh</div></div>
+          <div class="kpi-card c3"><div class="kl">Total Periodo</div>
+            <div class="kv" style="color:{COLOR_TOTAL}">{fn(gtd,1)} kWh</div>
+            <div class="ks">{dias} dias activos</div></div>
+          <div class="kpi-card c4"><div class="kl">Ahorro Periodo</div>
+            <div class="kv" style="color:{COLOR_AMBAR}">{fc(ahd)}</div></div>
+          <div class="kpi-card c5"><div class="kl">Mejor Dia</div>
+            <div class="kv" style="color:#ef4444">{bv} kWh</div>
+            <div class="ks">{bd}</div></div>
+        </div>""",unsafe_allow_html=True)
+
         st.markdown("## Diario: Generacion Solar")
-
-        if diario_filtrado.empty:
-            st.warning("No hay datos diarios con los filtros seleccionados.")
+        if dff.empty:
+            st.warning("No hay datos diarios.")
         else:
-            daily_all = diario_filtrado.groupby(["fecha","planta"], as_index=False)["energia_kwh"].sum()
-            daily_total = diario_filtrado.groupby("fecha", as_index=False)["energia_kwh"].sum()
-            # Promedio: solo dias con generacion > 0
-            dias_con_gen = daily_total[daily_total["energia_kwh"] > 0]
-            avg_dia = safe_float(dias_con_gen["energia_kwh"].mean()) if not dias_con_gen.empty else 0
-
-            # ── GRAFICO PRINCIPAL ──
-            st.markdown('<div class="panel">', unsafe_allow_html=True)
-            st.markdown('<div class="panel-title">Evolucion Diaria de Generacion Solar</div>', unsafe_allow_html=True)
-            st.markdown(
-                '<div class="panel-sub">Linea continua por planta | Linea punteada: promedio general (dias con generacion)</div>',
-                unsafe_allow_html=True,
-            )
-            fig_d = go.Figure()
-            for planta in selected_plantas:
-                d = daily_all[daily_all["planta"]==planta].sort_values("fecha")
+            st.markdown('<div class="panel"><div class="pt">Evolucion Diaria</div>',unsafe_allow_html=True)
+            st.markdown('<div class="ps">Por planta | Punteadas: promedios individuales</div>',unsafe_allow_html=True)
+            fd=go.Figure()
+            for pl in sel_pl:
+                d=da_[da_["planta"]==pl].sort_values("fecha")
                 if d.empty: continue
-                color = COLOR_CAFE if planta == "CAFE" else COLOR_MERC
-                d_labels = d["fecha"].apply(fecha_label_dia)
-                fig_d.add_trace(go.Scatter(
-                    name=planta, x=d["fecha"], y=d["energia_kwh"],
-                    mode="lines+markers",
-                    line=dict(color=color, width=2),
-                    marker=dict(size=4, color=color),
-                    fill="tozeroy",
-                    fillcolor=f"rgba({int(color[1:3],16)},{int(color[3:5],16)},{int(color[5:7],16)},0.08)",
-                    customdata=d_labels,
-                    hovertemplate="<b>%{customdata}</b><br>%{y:.1f} kWh<extra></extra>",
-                ))
-            if avg_dia > 0:
-                fig_d.add_hline(
-                    y=avg_dia, line_dash="dot", line_color=COLOR_TOTAL, line_width=2,
-                    annotation_text=f"Prom: {fmt_num(avg_dia,1)} kWh/dia",
-                    annotation_font=dict(size=11, color=COLOR_TOTAL),
-                )
-            fig_d.update_layout(yaxis_title="Energia (kWh)", xaxis_title="Fecha")
-            fig_d = apply_light(fig_d, h=460)
-            st.plotly_chart(fig_d, use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+                c=COLOR_CAFE if pl=="CAFE" else COLOR_MERC
+                fd.add_trace(go.Scatter(name=pl,x=d["fecha"],y=d["energia_kwh"],mode="lines+markers",
+                    line=dict(color=c,width=2),marker=dict(size=4,color=c),fill="tozeroy",
+                    fillcolor=f"rgba({int(c[1:3],16)},{int(c[3:5],16)},{int(c[5:7],16)},.08)",
+                    customdata=d["fecha"].apply(dlbl),hovertemplate="<b>%{customdata}</b><br>%{y:.1f} kWh<extra></extra>"))
+            if avc>0 and "CAFE" in sel_pl:
+                fd.add_hline(y=avc,line_dash="dot",line_color=COLOR_CAFE,line_width=2,
+                    annotation_text=f"Prom CAFE: {fn(avc,1)} kWh/dia",annotation_position="top left",
+                    annotation_font=dict(size=10,color=COLOR_CAFE))
+            if avm>0 and "MERCADO" in sel_pl:
+                fd.add_hline(y=avm,line_dash="dash",line_color=COLOR_MERC,line_width=2,
+                    annotation_text=f"Prom MERCADO: {fn(avm,1)} kWh/dia",annotation_position="bottom right",
+                    annotation_font=dict(size=10,color=COLOR_MERC))
+            fd.update_layout(yaxis_title="Energia (kWh)",xaxis_title="Fecha")
+            fd=aplyt(fd,460)
+            st.plotly_chart(fd,use_container_width=True)
+            st.markdown('</div>',unsafe_allow_html=True)
 
-            # ── FILA: Stats + Torta + Dia de semana ──
-            c1, c2, c3 = st.columns([1, 1, 1.5])
-
-            max_d = daily_total.loc[daily_total["energia_kwh"].idxmax()] if not daily_total.empty else None
-            std_d = safe_float(dias_con_gen["energia_kwh"].std()) if not dias_con_gen.empty else 0
-
+            c1,c2,c3=st.columns([1,1,1.5])
             with c1:
-                best_val = fmt_num(max_d["energia_kwh"], 0) if max_d is not None else "—"
-                best_date = fecha_label_dia(max_d["fecha"]) if max_d is not None else ""
-                st.markdown(f"""
-                <div class="panel"><div class="panel-title">Estadisticas Diarias</div>
-                  <div class="stat-grid" style="flex-direction:column;">
-                    <div class="stat-card">
-                      <div class="stat-label">Promedio Diario</div>
-                      <div class="stat-value" style="color:{COLOR_TOTAL};font-size:22px;">{fmt_num(avg_dia,1)} kWh</div>
-                      <div class="stat-extra">dias con generacion: {len(dias_con_gen)}</div>
-                    </div>
-                    <div class="stat-card">
-                      <div class="stat-label">Mejor Dia</div>
-                      <div class="stat-value" style="color:{COLOR_MERC};font-size:22px;">{best_val} kWh</div>
-                      <div class="stat-extra">{best_date}</div>
-                    </div>
-                    <div class="stat-card">
-                      <div class="stat-label">Desviacion Estandar</div>
-                      <div class="stat-value" style="color:{COLOR_AMBAR};font-size:22px;">{fmt_num(std_d,1)} kWh</div>
-                      <div class="stat-extra">variabilidad diaria</div>
-                    </div>
-                  </div>
-                </div>
-                """, unsafe_allow_html=True)
-
+                st.markdown('<div class="panel"><div class="pt">Distribucion por Planta</div>',unsafe_allow_html=True)
+                ddc=da_[da_["planta"]=="CAFE"]["energia_kwh"].sum()
+                ddm=da_[da_["planta"]=="MERCADO"]["energia_kwh"].sum()
+                fp=go.Figure(go.Pie(labels=["CAFE","MERCADO"],values=[sf(ddc),sf(ddm)],hole=.55,
+                    marker=dict(colors=[COLOR_CAFE,COLOR_MERC],line=dict(color="white",width=3)),
+                    textinfo="label+percent",textfont=dict(size=11)))
+                fp.add_annotation(text=f"<b>{fn(ddc+ddm)}</b><br><span style='font-size:9px;color:#64748b'>kWh</span>",
+                    x=.5,y=.5,showarrow=False,font=dict(size=16,color="#0f172a"))
+                fp.update_layout(paper_bgcolor="rgba(0,0,0,0)",showlegend=False,height=300,margin=dict(l=10,r=10,t=10,b=10))
+                st.plotly_chart(fp,use_container_width=True)
+                st.markdown('</div>',unsafe_allow_html=True)
             with c2:
-                st.markdown('<div class="panel"><div class="panel-title">Distribucion por Planta</div>', unsafe_allow_html=True)
-                dcafe = daily_all[daily_all["planta"]=="CAFE"]["energia_kwh"].sum()
-                dmerc = daily_all[daily_all["planta"]=="MERCADO"]["energia_kwh"].sum()
-                fig_pd = go.Figure(go.Pie(
-                    labels=["CAFE","MERCADO"], values=[safe_float(dcafe), safe_float(dmerc)],
-                    hole=0.55, marker=dict(colors=[COLOR_CAFE, COLOR_MERC], line=dict(color="white", width=3)),
-                    textinfo="label+percent", textfont=dict(size=11),
-                ))
-                fig_pd.add_annotation(
-                    text=f"<b>{fmt_num(dcafe+dmerc,0)}</b><br><span style='font-size:9px;color:#64748b'>kWh</span>",
-                    x=0.5, y=0.5, showarrow=False, font=dict(size=16, color="#0f172a"))
-                fig_pd.update_layout(paper_bgcolor="rgba(0,0,0,0)", showlegend=False,
-                    height=300, margin=dict(l=10,r=10,t=10,b=10))
-                st.plotly_chart(fig_pd, use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
-
+                sd=sf(dt_pos["energia_kwh"].std()) if not dt_pos.empty else 0
+                st.markdown(f"""
+                <div class="panel"><div class="pt">Resumen Estadistico</div>
+                <div class="sg" style="flex-direction:column">
+                  <div class="sc"><div class="sl">Prom Total</div>
+                    <div class="sv" style="color:{COLOR_TOTAL};font-size:20px">{fn(avt,1)} kWh/dia</div></div>
+                  <div class="sc"><div class="sl">Desv. Estandar</div>
+                    <div class="sv" style="color:#64748b;font-size:20px">{fn(sd,1)} kWh</div></div>
+                  <div class="sc"><div class="sl">Dias Activos</div>
+                    <div class="sv" style="color:{COLOR_AMBAR};font-size:20px">{dias}</div></div>
+                </div></div>""",unsafe_allow_html=True)
             with c3:
-                st.markdown('<div class="panel"><div class="panel-title">Promedio por Dia de la Semana</div>', unsafe_allow_html=True)
-                dow = diario_filtrado.copy()
-                dow["dow"] = dow["fecha"].dt.dayofweek
-                dow_names = ["Lun","Mar","Mie","Jue","Vie","Sab","Dom"]
-                dow_agg = dow.groupby(["dow","planta"], as_index=False)["energia_kwh"].mean()
-                fig_dw = go.Figure()
-                for planta in selected_plantas:
-                    d = dow_agg[dow_agg["planta"]==planta].sort_values("dow")
+                st.markdown('<div class="panel"><div class="pt">Promedio por Dia de Semana</div>',unsafe_allow_html=True)
+                dw=dff.copy(); dw["dow"]=dw["fecha"].dt.dayofweek
+                dn=["Lun","Mar","Mie","Jue","Vie","Sab","Dom"]
+                dwa=dw.groupby(["dow","planta"],as_index=False)["energia_kwh"].mean()
+                fdw=go.Figure()
+                for pl in sel_pl:
+                    d=dwa[dwa["planta"]==pl].sort_values("dow")
                     if d.empty: continue
-                    color = COLOR_CAFE if planta == "CAFE" else COLOR_MERC
-                    fig_dw.add_trace(go.Bar(
-                        name=planta, x=[dow_names[int(i)] for i in d["dow"]],
-                        y=d["energia_kwh"], marker_color=color,
-                        text=d["energia_kwh"].apply(lambda v: fmt_num(v,1)),
-                        textposition="outside", textfont=dict(size=9),
-                    ))
-                fig_dw.update_layout(barmode="group", yaxis_title="Prom kWh/dia")
-                fig_dw = apply_light(fig_dw, h=300)
-                st.plotly_chart(fig_dw, use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
+                    c=COLOR_CAFE if pl=="CAFE" else COLOR_MERC
+                    fdw.add_trace(go.Bar(name=pl,x=[dn[int(i)] for i in d["dow"]],y=d["energia_kwh"],
+                        marker_color=c,text=d["energia_kwh"].apply(lambda v:fn(v,1)),textposition="outside",textfont=dict(size=9)))
+                fdw.update_layout(barmode="group",yaxis_title="Prom kWh/dia")
+                fdw=aplyt(fdw,300)
+                st.plotly_chart(fdw,use_container_width=True)
+                st.markdown('</div>',unsafe_allow_html=True)
 
-            # ── TABLA RESUMEN DIARIO ──
-            st.markdown('<div class="panel"><div class="panel-title">Tabla Resumen Diario</div>', unsafe_allow_html=True)
-            piv = daily_all.pivot_table(index="fecha", columns="planta", values="energia_kwh", fill_value=0).reset_index()
+            st.markdown('<div class="panel"><div class="pt">Tabla Resumen Diario</div>',unsafe_allow_html=True)
+            pv=da_.pivot_table(index="fecha",columns="planta",values="energia_kwh",fill_value=0).reset_index()
             for c in ["CAFE","MERCADO"]:
-                if c not in piv.columns: piv[c] = 0.0
-            piv["TOTAL"] = piv["CAFE"] + piv["MERCADO"]
-            piv = piv.sort_values("fecha")
-            piv["Fecha"] = piv["fecha"].apply(fecha_label_dia)
-            piv["Ahorro ($)"] = (piv["CAFE"]*COSTOS_EPM["CAFE"] + piv["MERCADO"]*COSTOS_EPM["MERCADO"]).apply(fmt_currency)
-            out = piv[["Fecha","CAFE","MERCADO","TOTAL","Ahorro ($)"]].rename(columns={
-                "CAFE":"Solar CAFE (kWh)", "MERCADO":"Solar MERCADO (kWh)", "TOTAL":"Solar TOTAL (kWh)"
-            }).round(1)
-            st.dataframe(out, use_container_width=True, hide_index=True, height=400)
-            st.markdown('</div>', unsafe_allow_html=True)
+                if c not in pv.columns: pv[c]=0.0
+            pv["TOTAL"]=pv["CAFE"]+pv["MERCADO"]
+            pv=pv.sort_values("fecha")
+            pv["Fecha"]=pv["fecha"].apply(dlbl)
+            pv["Ahorro"]=(pv["CAFE"]*COSTOS_EPM["CAFE"]+pv["MERCADO"]*COSTOS_EPM["MERCADO"]).round(0).astype(int)
+            out=pv[["Fecha","CAFE","MERCADO","TOTAL","Ahorro"]].rename(columns={"CAFE":"Solar CAFE","MERCADO":"Solar MERCADO","TOTAL":"Solar TOTAL","Ahorro":"Ahorro COP"})
+            out["Solar CAFE"]=out["Solar CAFE"].round(1); out["Solar MERCADO"]=out["Solar MERCADO"].round(1); out["Solar TOTAL"]=out["Solar TOTAL"].round(1)
+            mxt=float(out["Solar TOTAL"].max()) if out["Solar TOTAL"].max()>0 else 100
+            st.dataframe(out,use_container_width=True,hide_index=True,height=400,
+                column_config={
+                    "Solar CAFE":st.column_config.NumberColumn(format="%.1f kWh"),
+                    "Solar MERCADO":st.column_config.NumberColumn(format="%.1f kWh"),
+                    "Solar TOTAL":st.column_config.ProgressColumn(min_value=0,max_value=mxt*1.1,format="%.1f kWh"),
+                    "Ahorro COP":st.column_config.NumberColumn(format="$%d"),
+                })
+            st.markdown('</div>',unsafe_allow_html=True)
 
 
-    # ═══════════════════════════════════════
-    # VISTA HORA
-    # ═══════════════════════════════════════
+    # =====================================================
+    #  HORA
+    # =====================================================
     else:
-        st.markdown("## Hora: Generacion Solar (promedio por hora)")
+        # KPIs HORARIOS
+        hp=hf.groupby(["hora_num","planta"],as_index=False)["energia_kwh"].mean()
+        hp["hora_num"]=hp["hora_num"].astype(int)
+        thp=hp.groupby("hora_num")["energia_kwh"].sum()
+        pkh=int(thp.idxmax()) if not thp.empty else 0
+        pkv=sf(thp.max())
+        prod=hp[hp["energia_kwh"]>.5]["hora_num"].nunique()
+        avhc=sf(hp[(hp["planta"]=="CAFE")&(hp["energia_kwh"]>.5)]["energia_kwh"].mean())
+        avhm=sf(hp[(hp["planta"]=="MERCADO")&(hp["energia_kwh"]>.5)]["energia_kwh"].mean())
+        ghf=hf["energia_kwh"].sum()
 
-        if horario_filtrado.empty:
-            st.warning("No hay datos por hora con los filtros seleccionados.")
+        st.markdown(f"""
+        <div class="kpi-row">
+          <div class="kpi-card c4"><div class="kl">Hora Pico</div>
+            <div class="kv" style="color:{COLOR_AMBAR}">{pkh:02d}:00</div>
+            <div class="ks">{fn(pkv,1)} kWh prom</div></div>
+          <div class="kpi-card c2"><div class="kl">Horas Productivas</div>
+            <div class="kv" style="color:{COLOR_MERC}">{prod}</div>
+            <div class="ks">horas con +0.5 kWh</div></div>
+          <div class="kpi-card c1"><div class="kl">Prom CAFE/hora</div>
+            <div class="kv" style="color:{COLOR_CAFE}">{fn(avhc,2)} kWh</div></div>
+          <div class="kpi-card c2"><div class="kl">Prom MERCADO/hora</div>
+            <div class="kv" style="color:{COLOR_MERC}">{fn(avhm,2)} kWh</div></div>
+          <div class="kpi-card c3"><div class="kl">Total Generado</div>
+            <div class="kv" style="color:{COLOR_TOTAL}">{fn(ghf,1)} kWh</div></div>
+        </div>""",unsafe_allow_html=True)
+
+        st.markdown("## Hora: Generacion Solar")
+        if hf.empty:
+            st.warning("No hay datos horarios.")
         else:
-            hp = horario_filtrado.groupby(["hora_num","planta"], as_index=False)["energia_kwh"].mean()
-            hp["hora_num"] = hp["hora_num"].astype(int)
-
-            epm_h_agg = pd.DataFrame(columns=["hora_num","planta","epm_kwh_hora"])
-            if not epm_hora_filtrado.empty:
-                epm_h_agg = epm_hora_filtrado.groupby(["hora_num","planta"], as_index=False)["epm_kwh_hora"].mean()
-                epm_h_agg["hora_num"] = epm_h_agg["hora_num"].astype(int)
-
-            # ── GRAFICO PRINCIPAL ──
-            st.markdown('<div class="panel">', unsafe_allow_html=True)
-            st.markdown('<div class="panel-title">Patron de Generacion por Hora - Solar vs EPM (estimado)</div>', unsafe_allow_html=True)
-            st.markdown(
-                '<div class="panel-sub">Curva solar promedio | EPM estimado por distribucion horaria | Zona solar: 6h-18h</div>',
-                unsafe_allow_html=True,
-            )
-            fig_h = go.Figure()
-
-            # EPM estimado
-            if not epm_h_agg.empty:
-                for planta in selected_plantas:
-                    de = epm_h_agg[epm_h_agg["planta"]==planta].sort_values("hora_num")
-                    if de.empty: continue
-                    color = COLOR_CAFE if planta == "CAFE" else COLOR_MERC
-                    fig_h.add_trace(go.Scatter(
-                        name=f"EPM {planta} (est.)", x=de["hora_num"], y=de["epm_kwh_hora"],
-                        mode="lines", line=dict(color=color, width=1.5, dash="dot"), opacity=0.35,
-                        fill="tozeroy",
-                        fillcolor=f"rgba({int(color[1:3],16)},{int(color[3:5],16)},{int(color[5:7],16)},0.04)",
-                    ))
-
-            # Solar por hora
-            for planta in selected_plantas:
-                d = hp[hp["planta"]==planta].sort_values("hora_num")
+            st.markdown('<div class="panel"><div class="pt">Patron de Generacion Solar por Hora</div>',unsafe_allow_html=True)
+            st.markdown('<div class="ps">Curva promedio por planta | Punteadas: promedios por planta | Zona solar 6h-18h</div>',unsafe_allow_html=True)
+            fh=go.Figure()
+            for pl in sel_pl:
+                d=hp[hp["planta"]==pl].sort_values("hora_num")
                 if d.empty: continue
-                color = COLOR_CAFE if planta == "CAFE" else COLOR_MERC
-                fig_h.add_trace(go.Scatter(
-                    name=f"Solar {planta}", x=d["hora_num"], y=d["energia_kwh"],
-                    mode="lines+markers+text",
-                    line=dict(color=color, width=3, shape="spline"),
-                    marker=dict(size=8, color=color, line=dict(width=2, color="white")),
-                    fill="tozeroy",
-                    fillcolor=f"rgba({int(color[1:3],16)},{int(color[3:5],16)},{int(color[5:7],16)},0.1)",
-                    text=d["energia_kwh"].apply(lambda v: f"{v:.1f}" if v > 0.5 else ""),
-                    textposition="top center", textfont=dict(size=9, color="#0f172a"),
-                ))
+                c=COLOR_CAFE if pl=="CAFE" else COLOR_MERC
+                fh.add_trace(go.Scatter(name=f"Solar {pl}",x=d["hora_num"],y=d["energia_kwh"],
+                    mode="lines+markers+text",line=dict(color=c,width=3,shape="spline"),
+                    marker=dict(size=8,color=c,line=dict(width=2,color="white")),fill="tozeroy",
+                    fillcolor=f"rgba({int(c[1:3],16)},{int(c[3:5],16)},{int(c[5:7],16)},.1)",
+                    text=d["energia_kwh"].apply(lambda v:f"{v:.1f}" if v>.5 else ""),
+                    textposition="top center",textfont=dict(size=9,color="#0f172a")))
+            fh.add_vrect(x0=6,x1=18,fillcolor="rgba(245,158,11,.04)",line_width=0,
+                annotation_text="Horas solares",annotation_position="top left",
+                annotation_font=dict(size=10,color=COLOR_AMBAR))
+            for pl in sel_pl:
+                hpg=hp[(hp["planta"]==pl)&(hp["energia_kwh"]>.5)]
+                av=sf(hpg["energia_kwh"].mean()) if not hpg.empty else 0
+                if av>0:
+                    c=COLOR_CAFE if pl=="CAFE" else COLOR_MERC
+                    ds="dot" if pl=="CAFE" else "dash"
+                    ps="top left" if pl=="CAFE" else "bottom right"
+                    fh.add_hline(y=av,line_dash=ds,line_color=c,line_width=2,
+                        annotation_text=f"Prom {pl}: {av:.2f} kWh/h",annotation_position=ps,
+                        annotation_font=dict(size=10,color=c))
+            fh.update_layout(xaxis=dict(tickmode="array",tickvals=list(range(h_min,h_max+1)),
+                ticktext=[f"{h:02d}:00" for h in range(h_min,h_max+1)],title="Hora"),yaxis_title="kWh promedio")
+            fh=aplyt(fh,460)
+            st.plotly_chart(fh,use_container_width=True)
+            st.markdown('</div>',unsafe_allow_html=True)
 
-            fig_h.add_vrect(
-                x0=6, x1=18, fillcolor="rgba(245,158,11,0.04)", line_width=0,
-                annotation_text="Horas solares", annotation_position="top left",
-                annotation_font=dict(size=10, color=COLOR_AMBAR),
-            )
-
-            # Promedio horario (solo horas con generacion > 0)
-            hp_con_gen = hp[hp["energia_kwh"] > 0]
-            avg_hora = safe_float(hp_con_gen["energia_kwh"].mean()) if not hp_con_gen.empty else 0
-            if avg_hora > 0:
-                fig_h.add_hline(
-                    y=avg_hora, line_dash="dot", line_color=COLOR_TOTAL, line_width=2,
-                    annotation_text=f"Prom Solar: {avg_hora:.2f} kWh/h",
-                    annotation_font=dict(size=11, color=COLOR_TOTAL),
-                )
-
-            fig_h.update_layout(
-                xaxis=dict(
-                    tickmode="array", tickvals=list(range(0,24)),
-                    ticktext=[f"{h}:00" for h in range(0,24)],
-                    title="Hora del dia",
-                ),
-                yaxis_title="kWh promedio",
-            )
-            fig_h = apply_light(fig_h, h=460)
-            st.plotly_chart(fig_h, use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            # ── FILA: Stats + Torta + Heatmap ──
-            c1, c2 = st.columns([1, 1.5])
-
-            total_hp = hp.groupby("hora_num")["energia_kwh"].sum()
-            peak_h = int(total_hp.idxmax()) if not total_hp.empty else 0
-            peak_v = safe_float(total_hp.max())
-            productive = hp[hp["energia_kwh"] > 0.5]["hora_num"].nunique()
-
+            c1,c2=st.columns([1,1.5])
             with c1:
-                st.markdown(f"""
-                <div class="panel"><div class="panel-title">Estadisticas Horarias</div>
-                  <div class="stat-grid" style="flex-direction:column;">
-                    <div class="stat-card">
-                      <div class="stat-label">Hora Pico</div>
-                      <div class="stat-value" style="color:{COLOR_AMBAR};font-size:26px;">{peak_h}:00</div>
-                      <div class="stat-extra">{fmt_num(peak_v,1)} kWh promedio total</div>
-                    </div>
-                    <div class="stat-card">
-                      <div class="stat-label">Horas Productivas</div>
-                      <div class="stat-value" style="color:{COLOR_MERC};font-size:26px;">{productive}</div>
-                      <div class="stat-extra">horas con mas de 0.5 kWh</div>
-                    </div>
-                    <div class="stat-card">
-                      <div class="stat-label">Promedio por Hora</div>
-                      <div class="stat-value" style="color:{COLOR_CAFE};font-size:26px;">{fmt_num(avg_hora,2)}</div>
-                      <div class="stat-extra">kWh/hora (horas productivas)</div>
-                    </div>
-                  </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                # Torta pico vs no-pico
-                st.markdown('<div class="panel"><div class="panel-title">Generacion Pico vs No-Pico</div>', unsafe_allow_html=True)
-                hp_total = hp.groupby("hora_num")["energia_kwh"].sum().reset_index()
-                pico_kwh = safe_float(hp_total[(hp_total["hora_num"]>=9) & (hp_total["hora_num"]<=15)]["energia_kwh"].sum())
-                no_pico = safe_float(hp_total[~((hp_total["hora_num"]>=9) & (hp_total["hora_num"]<=15))]["energia_kwh"].sum())
-                fig_pp = go.Figure(go.Pie(
-                    labels=["Pico (9-15h)","Fuera de pico"],
-                    values=[pico_kwh, no_pico],
-                    hole=0.55,
-                    marker=dict(colors=[COLOR_AMBAR, "#e2e8f0"], line=dict(color="white", width=3)),
-                    textinfo="label+percent", textfont=dict(size=11),
-                ))
-                fig_pp.update_layout(paper_bgcolor="rgba(0,0,0,0)", showlegend=False,
-                    height=220, margin=dict(l=10,r=10,t=10,b=10))
-                st.plotly_chart(fig_pp, use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
-
+                st.markdown('<div class="panel"><div class="pt">Pico vs Fuera de Pico</div>',unsafe_allow_html=True)
+                hpt=hp.groupby("hora_num")["energia_kwh"].sum().reset_index()
+                pk=sf(hpt[(hpt["hora_num"]>=9)&(hpt["hora_num"]<=15)]["energia_kwh"].sum())
+                np_=sf(hpt[~((hpt["hora_num"]>=9)&(hpt["hora_num"]<=15))]["energia_kwh"].sum())
+                fpp=go.Figure(go.Pie(labels=["Pico (9-15h)","Fuera de pico"],values=[pk,np_],hole=.55,
+                    marker=dict(colors=[COLOR_AMBAR,"#e2e8f0"],line=dict(color="white",width=3)),
+                    textinfo="label+percent",textfont=dict(size=11)))
+                fpp.update_layout(paper_bgcolor="rgba(0,0,0,0)",showlegend=False,height=280,margin=dict(l=10,r=10,t=10,b=10))
+                st.plotly_chart(fpp,use_container_width=True)
+                st.markdown('</div>',unsafe_allow_html=True)
             with c2:
-                # Heatmap
-                st.markdown('<div class="panel">', unsafe_allow_html=True)
-                st.markdown('<div class="panel-title">Heatmap: Generacion por Hora y Fecha</div>', unsafe_allow_html=True)
-                st.markdown('<div class="panel-sub">Intensidad de generacion solar a lo largo del tiempo</div>', unsafe_allow_html=True)
-                hm = horario_filtrado.groupby(["fecha","hora_num"], as_index=False)["energia_kwh"].sum()
-                hm["fecha_str"] = hm["fecha"].apply(fecha_label_dia)
-                hm_pivot = hm.pivot_table(index="hora_num", columns="fecha_str", values="energia_kwh", fill_value=0).sort_index()
-                if hm_pivot.shape[1] > 45:
-                    hm_pivot = hm_pivot.iloc[:, -45:]
-                fig_hm = go.Figure(go.Heatmap(
-                    z=hm_pivot.values,
-                    x=hm_pivot.columns.tolist(),
-                    y=[f"{int(h)}:00" for h in hm_pivot.index],
-                    colorscale=[
-                        [0, "#f8fafc"], [0.15, "#dbeafe"],
-                        [0.4, COLOR_CAFE], [0.7, COLOR_MERC], [1.0, COLOR_AMBAR],
-                    ],
+                st.markdown('<div class="panel"><div class="pt">Heatmap: Generacion por Hora y Fecha</div>',unsafe_allow_html=True)
+                hm=hf.groupby(["fecha","hora_num"],as_index=False)["energia_kwh"].sum()
+                hm["fs"]=hm["fecha"].apply(dlbl)
+                hmv=hm.pivot_table(index="hora_num",columns="fs",values="energia_kwh",fill_value=0).sort_index()
+                if hmv.shape[1]>45: hmv=hmv.iloc[:,-45:]
+                fhm=go.Figure(go.Heatmap(z=hmv.values,x=hmv.columns.tolist(),
+                    y=[f"{int(h):02d}:00" for h in hmv.index],
+                    colorscale=[[0,"#f8fafc"],[.15,"#dbeafe"],[.4,COLOR_CAFE],[.7,COLOR_MERC],[1,COLOR_AMBAR]],
                     hovertemplate="Fecha: %{x}<br>Hora: %{y}<br>kWh: %{z:.1f}<extra></extra>",
-                    colorbar=dict(
-                        title=dict(text="kWh", font=dict(size=11)),
-                        tickfont=dict(size=10),
-                    ),
-                ))
-                fig_hm.update_layout(
-                    xaxis_title="Fecha", yaxis_title="Hora",
-                    yaxis=dict(autorange="reversed"),
-                )
-                fig_hm = apply_light(fig_hm, h=460)
-                st.plotly_chart(fig_hm, use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
+                    colorbar=dict(title=dict(text="kWh",font=dict(size=11)),tickfont=dict(size=10))))
+                fhm.update_layout(xaxis_title="Fecha",yaxis_title="Hora",yaxis=dict(autorange="reversed"))
+                fhm=aplyt(fhm,460)
+                st.plotly_chart(fhm,use_container_width=True)
+                st.markdown('</div>',unsafe_allow_html=True)
 
-            # ── TABLA POR HORA ──
-            st.markdown('<div class="panel"><div class="panel-title">Tabla Resumen por Hora (Solar + EPM estimado)</div>', unsafe_allow_html=True)
-            piv_h = hp.pivot_table(index="hora_num", columns="planta", values="energia_kwh", fill_value=0).reset_index()
+            st.markdown('<div class="panel"><div class="pt">Tabla Resumen por Hora</div>',unsafe_allow_html=True)
+            pvh=hp.pivot_table(index="hora_num",columns="planta",values="energia_kwh",fill_value=0).reset_index()
             for c in ["CAFE","MERCADO"]:
-                if c not in piv_h.columns: piv_h[c] = 0.0
-            piv_h["TOTAL"] = piv_h["CAFE"] + piv_h["MERCADO"]
+                if c not in pvh.columns: pvh[c]=0.0
+            pvh["TOTAL"]=pvh["CAFE"]+pvh["MERCADO"]
+            pvh=pvh.sort_values("hora_num")
+            pvh["Hora"]=pvh["hora_num"].apply(lambda h:f"{int(h):02d}:00")
+            out_h=pvh[["Hora","CAFE","MERCADO","TOTAL"]].rename(columns={"CAFE":"Solar CAFE","MERCADO":"Solar MERCADO","TOTAL":"Solar TOTAL"}).round(2)
+            mxh=float(out_h["Solar TOTAL"].max()) if out_h["Solar TOTAL"].max()>0 else 1
+            st.dataframe(out_h,use_container_width=True,hide_index=True,height=500,
+                column_config={
+                    "Solar CAFE":st.column_config.NumberColumn(format="%.2f kWh"),
+                    "Solar MERCADO":st.column_config.NumberColumn(format="%.2f kWh"),
+                    "Solar TOTAL":st.column_config.ProgressColumn(min_value=0,max_value=mxh*1.1,format="%.2f kWh"),
+                })
+            st.markdown('</div>',unsafe_allow_html=True)
 
-            if not epm_h_agg.empty:
-                epm_h_piv = epm_h_agg.pivot_table(index="hora_num", columns="planta", values="epm_kwh_hora", fill_value=0).reset_index()
-                epm_h_piv = epm_h_piv.rename(columns={"CAFE":"EPM_CAFE","MERCADO":"EPM_MERCADO"})
-                for c in ["EPM_CAFE","EPM_MERCADO"]:
-                    if c not in epm_h_piv.columns: epm_h_piv[c] = 0.0
-                epm_h_piv["EPM_TOTAL"] = epm_h_piv.get("EPM_CAFE", 0) + epm_h_piv.get("EPM_MERCADO", 0)
-                piv_h = pd.merge(piv_h, epm_h_piv[["hora_num","EPM_CAFE","EPM_MERCADO","EPM_TOTAL"]],
-                                  on="hora_num", how="left")
-                for c in ["EPM_CAFE","EPM_MERCADO","EPM_TOTAL"]:
-                    piv_h[c] = piv_h[c].fillna(0.0)
-
-            piv_h = piv_h.sort_values("hora_num")
-            piv_h["Hora"] = piv_h["hora_num"].apply(lambda h: f"{int(h):02d}:00")
-
-            cols_out = ["Hora","CAFE","MERCADO","TOTAL"]
-            ren = {"CAFE":"Solar CAFE (kWh)", "MERCADO":"Solar MERCADO (kWh)", "TOTAL":"Solar TOTAL (kWh)"}
-            if "EPM_TOTAL" in piv_h.columns:
-                cols_out += ["EPM_CAFE","EPM_MERCADO","EPM_TOTAL"]
-                ren.update({"EPM_CAFE":"EPM CAFE (est.)", "EPM_MERCADO":"EPM MERC (est.)", "EPM_TOTAL":"EPM TOTAL (est.)"})
-
-            out_h = piv_h[cols_out].rename(columns=ren).round(2)
-            st.dataframe(out_h, use_container_width=True, hide_index=True, height=500)
-            st.markdown('</div>', unsafe_allow_html=True)
-
-
-# =========================
-# FOOTER
-# =========================
 st.markdown(f"""
 <div class="dash-footer">
-    Dashboard Energia Solar - GEDICOL | &copy; {datetime.now().year} |
-    Datos: Google Sheets en tiempo real |
-    <span style="color:{COLOR_CAFE};">&#9632;</span> CAFE
-    <span style="color:{COLOR_MERC};">&#9632;</span> MERCADO
-    <span style="color:{COLOR_TOTAL};">&#9632;</span> Total
-    <span style="color:{COLOR_AMBAR};">&#9632;</span> Ahorro
-</div>
-""", unsafe_allow_html=True)
+  Dashboard Energia Solar - GEDICOL | &copy; {datetime.now().year} | Datos: Google Sheets |
+  <span style="color:{COLOR_CAFE}">&#9632;</span> CAFE
+  <span style="color:{COLOR_MERC}">&#9632;</span> MERCADO
+  <span style="color:{COLOR_TOTAL}">&#9632;</span> Total
+  <span style="color:{COLOR_AMBAR}">&#9632;</span> Ahorro
+</div>""",unsafe_allow_html=True)
